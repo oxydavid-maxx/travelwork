@@ -51,6 +51,34 @@ workspace-shape-preflight  (entry gate — first invocation only)
 | Invoke orchestrator to advance | After any stage completes, re-invoke `tripwork:orchestrator` to determine the next stage. |
 | Preflight before pipeline | First invocation in a cwd is gated by `workspace-shape-preflight`; the `work/.preflight-completed` stamp must exist before the orchestrator advances. |
 
+## Adaptive Subagent Dispatch
+
+For sizable tripwork runs, keep the pipeline stage order in the orchestrator but dispatch
+independent work by role/capability before execution. The main session owns S0-style
+preflight: identify the platform's available agents/models, choose a role, and record why.
+
+| Role | Use for | Default intent |
+|---|---|---|
+| `architecture` | Cross-stage tradeoffs, conflicting sources, safety/regulatory calls, route/lodging/transport synthesis. | Pay for stronger reasoning only when the decision can change the itinerary. |
+| `mechanical` | Bounded research batches, source verification, restaurant/photo enrichment, schema/test/render fixes, artifact conversion. | Use the cheapest reliable tool-capable worker. |
+| `trivial` | Enumerating missing fields, link/photo counts, formatting, typo fixes, status summaries. | Use the smallest worker that can read the bounded input. |
+
+Before delegating, write down the role, rationale, input artifact paths or snippets,
+expected output, verification command, and `cost_tier` or selected model when the platform
+supports it. Pass **bounded inputs** only: stage artifact paths, focused snippets, or source
+URLs; do not pass the full repo, full vault, or whole conversation when a narrower input is
+enough.
+
+Subagents must return **summary-only** results: status, changed paths or produced artifacts,
+sources/evidence, tests run, blockers, rejected approaches, and budget/usage if available.
+Detailed notes stay in files. The main session merges results, runs the orchestrator again,
+handles stop-on-confirmation, and performs final verification. A subagent report or chat
+self-report never advances a stage by itself.
+
+Do not delegate work that needs shared mutable edits to the same file, unresolved
+stop-on-confirmation, private/secrets-bearing material, or an itinerary decision whose
+acceptance criteria are not yet clear.
+
 ## Workspace
 
 - `trips/<slug>/` — living docs (version-controlled by the consumer)

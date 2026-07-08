@@ -86,6 +86,26 @@ fail report on its own.
 
 After each stage completes, re-invoke this skill to pick the next stage.
 
+## Adaptive Subagent Dispatch
+
+Stage selection remains canonical: run `scripts/next_stage.py`, choose the next
+`tripwork:*` stage, then decide whether that stage's work can be delegated. The main
+session still owns slug binding, stop-on-confirmation, artifact merge, and the next
+orchestrator invocation.
+
+| Stage area | Default role | Dispatch guidance |
+|---|---|---|
+| `tripwork:workspace-shape-preflight`, `tripwork:orchestrator`, `tripwork:trip-brief` | main session / `trivial` | Keep ownership in the main session; delegate only narrow enumeration or status checks. |
+| `tripwork:destination-research`, `tripwork:source-verify`, restaurant/photo enrichment, `tripwork:accommodation-research` | `mechanical` | Split by city, day, POI category, or lodging stop. Each worker returns source evidence and artifact diffs only. |
+| `tripwork:calendar-check`, `tripwork:seasonal-advisory`, `tripwork:transit-detail`, `tripwork:cost-rollup`, `tripwork:travel-advisory` | `mechanical` -> `architecture` on conflict | Use mechanical workers for data collection; escalate to architecture when sources conflict or safety/regulatory choices affect the plan. |
+| `tripwork:routing-audit`, `tripwork:inter-stop-legs` | `architecture` for feasibility, `mechanical` for matrix fill | Use architecture for far/implausible hops and mode tradeoffs; use mechanical workers for bounded distance, timetable, or fare lookups. |
+| `tripwork:itinerary-synthesis` | `architecture` | This is the cross-stage optimizer; do not outsource it to a trivial worker. |
+| `tripwork:itinerary-gate`, `tripwork:export-artifact`, `tripwork:export-gate` | `mechanical` / `trivial` | Mechanical for render/test fixes; trivial for counts, broken-link/photo enumeration, and formatting-only changes. |
+
+Delegated work must follow the `tripwork:using-tripwork` bounded-input and summary-only contract.
+No subagent may skip the oracle, mutate stage order, silently clear a stop-on-confirmation,
+or mark the pipeline complete without the gate artifact passing.
+
 ## Stop-on-Confirmation
 
 Halt and ask the user when a stage reports: cross-source conflict, hop flagged `far` or

@@ -288,6 +288,22 @@ def test_tw024_websearch_unavailable_halts():
     t = _skill("using-tripwork")
     assert "WebSearch" in t and "HALT" in t and "never substitute model memory" in t
 
+def test_using_tripwork_documents_adaptive_subagent_dispatch_contract():
+    t = _skill("using-tripwork")
+    assert "## Adaptive Subagent Dispatch" in t
+    assert "bounded inputs" in t
+    assert "summary-only" in t
+    assert "cost_tier" in t
+    assert "Do not delegate" in t
+
+def test_orchestrator_documents_stage_to_role_dispatch():
+    t = _skill("orchestrator")
+    assert "## Adaptive Subagent Dispatch" in t
+    assert "architecture" in t
+    assert "mechanical" in t
+    assert "trivial" in t
+    assert "itinerary-synthesis" in t
+
 def test_tw025_notion_is_gated_md_paste_not_adapter():
     # 0.20.0: Notion is no longer a post-gate write-back adapter. The itinerary reaches
     # Notion by pasting the already-gated md via MCP — no page-id bookkeeping, no adapter.
