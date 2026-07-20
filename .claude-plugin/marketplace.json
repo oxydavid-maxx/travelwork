@@ -2,18 +2,19 @@
   "name": "tripwork",
   "description": "Source-Verified-First travel-planning pipeline plugin",
   "owner": {
-    "name": "helping-ai-workflow",
-    "url": "https://github.com/helping-ai-workflow"
+    "name": "oxydavid-maxx",
+    "url": "https://github.com/oxydavid-maxx"
   },
   "plugins": [
     {
       "name": "tripwork",
       "description": "Staged travel-planning pipeline with multi-source verification and geocoded routing audit",
-      "version": "0.30.0",
+      "version": "0.30.1",
       "source": "./",
+      "homepage": "https://github.com/oxydavid-maxx/travelwork",
       "author": {
-        "name": "helping-ai-workflow",
-        "url": "https://github.com/helping-ai-workflow/tripwork"
+        "name": "oxydavid-maxx",
+        "url": "https://github.com/oxydavid-maxx"
       }
     }
   ]
