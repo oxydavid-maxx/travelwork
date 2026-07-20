@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.2 — byte-stable Windows registration
+
+- Force Markdown skill entrypoints to LF so Codex and Claude plugin caches preserve the canonical Git blob bytes on Windows.
+
 ## 0.30.1 — canonical fork registration convergence
 
 - Bind Codex, Claude, Cursor, Kimi, Gemini, OpenCode, and Pi installation metadata to the maintained `oxydavid-maxx/travelwork` fork.
