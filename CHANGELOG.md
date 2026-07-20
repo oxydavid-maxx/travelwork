@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.1 — canonical fork registration convergence
+
+- Bind Codex, Claude, Cursor, Kimi, Gemini, OpenCode, and Pi installation metadata to the maintained `oxydavid-maxx/travelwork` fork.
+
 ## 0.30.0 — lodging name_zh: kana-hotel gate gap closed
 
 - **accommodations `name_zh` (product-gap closure)** — `accommodations.schema.json`
