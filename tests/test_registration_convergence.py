@@ -25,3 +25,8 @@ def test_installation_docs_use_the_canonical_fork() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "github.com/oxydavid-maxx/travelwork" in readme
     assert "marketplace add git@github.com:helping-ai-workflow/tripwork.git" not in readme
+
+
+def test_skill_registration_bytes_are_forced_to_lf_on_windows() -> None:
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    assert "*.md text eol=lf" in attributes.splitlines()
