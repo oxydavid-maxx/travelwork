@@ -74,12 +74,17 @@ fail report on its own.
       photos) -> delete the stale export-gate-report and return to `tripwork:export-artifact`
       to re-render.
     - **retryable==false** (an upstream DATA defect re-render cannot fix — a photo with no
-      attribution, a bookable POI with no official source) -> **STOP and ask the user to fix
-      the data** (add the attribution / mark the official source), then re-verify. Do NOT
-      loop export-artifact on it. (F1)
+      attribution, a bookable POI with no official source — or a family/public contract
+      defect that needs explicit source-data / HTML-contract repair) -> **STOP and ask the
+      user to fix the data** when the missing information is not obtainable, then re-verify.
+      Do NOT loop export-artifact on it. (F1)
     A non-distributable label is NOT a fail (see rule 16), so it never triggers this loop. (P7)
-16. **export-gate-report status==pass -> pipeline complete.** Report the deliverables
+16. **export-gate-report status==pass -> core pipeline complete.** Report the deliverables
     (`exports/<slug>-itinerary.md`, maps links, LINE text, optional Notion) and stop. If the
+    requested deliverable is family/public HTML, it is shareable only when
+    `family-public-contract.yaml` existed and the report contains passing `family_*` checks.
+    If the CLI said `family-public contract: not run` (or the report has no `family_*`
+    checks), report core completion only; do **not** call it family/public shareable. If the
     report also carries `distributable: false` (a personal / google-photo variant), report
     it as **complete — non-distributable (勿散布)**: a terminal state, NOT something to
     re-export or "fix". (P7)

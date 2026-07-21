@@ -19,6 +19,7 @@ from urllib.parse import unquote
 # the canonical itinerary-gate and these render gates share ONE implementation. These
 # calls are render-layer defense-in-depth; the canonical gate is the primary guard.
 from scripts.text_hygiene import jargon_failures, kana_gloss_failures
+from scripts.family_public_gate import run_family_public_gate
 
 # A $ NOT immediately preceded by a backslash (i.e. not already escaped as \$).
 _NAKED_DOLLAR = re.compile(r"(?<!\\)\$")
@@ -332,6 +333,34 @@ def merge_reports(md_report, html_report):
     }
 
 
+def merge_family_report(base_report, family_report):
+    """Merge the optional family-public contract gate into export-gate-report.
+
+    Generic export hygiene is necessary but not sufficient for a family-shareable
+    public page.  Prefix family checks/failures so callers can distinguish the source
+    of a pass/fail without adding a new report schema.
+    """
+    if family_report is None:
+        return base_report
+    failures = base_report["failures"] + [
+        f"family: {failure}" for failure in family_report["failures"]
+    ]
+    checks = base_report["checks"] + [
+        {"name": f"family_{check['name']}", "passed": check["passed"]}
+        for check in family_report["checks"]
+    ]
+    return {
+        "status": "pass" if not failures else "fail",
+        "distributable": base_report["distributable"] and family_report["distributable"],
+        "retryable": (
+            base_report.get("retryable", _is_retryable(base_report["failures"]))
+            and family_report.get("retryable", _is_retryable(family_report["failures"]))
+        ),
+        "checks": checks,
+        "failures": failures,
+    }
+
+
 def main(argv):
     """CLI: python scripts/export_gate.py <trip-dir> — gate the rendered
     deliverables (md + optional html) against the MERGED pois (verified-pois +
@@ -397,11 +426,45 @@ def main(argv):
                                     merged_pois, min_days=min_days,
                                     media_count=media_count)
     report = merge_reports(md_report, html_report)
+
+    family_contract_path = d / "family-public-contract.yaml"
+    family_report = None
+    if family_contract_path.is_file():
+        try:
+            with open(family_contract_path, encoding="utf-8") as fh:
+                family_contract = yaml.safe_load(fh) or {}
+        except yaml.YAMLError as exc:
+            print(f"malformed family-public-contract.yaml: {exc!r}",
+                  file=sys.stderr)
+            return 2
+        family_html = family_contract.get("html_path")
+        if family_html:
+            family_html_path = d / family_html
+        else:
+            family_html_path = html_path
+        if family_html_path.is_file():
+            family_report = run_family_public_gate(
+                family_html_path.read_text(encoding="utf-8"),
+                family_contract,
+            )
+        else:
+            family_report = {
+                "status": "fail",
+                "distributable": True,
+                "retryable": True,
+                "checks": [{"name": "html_exists", "passed": False}],
+                "failures": [f"family public HTML missing: {family_html_path}"],
+            }
+    report = merge_family_report(report, family_report)
     (d / "export-gate-report.yaml").write_text(
         yaml.safe_dump(report, allow_unicode=True, sort_keys=False),
         encoding="utf-8")
     print(f"export-gate: {report['status']} "
           f"(retryable={report['retryable']}, distributable={report['distributable']})")
+    if family_report is None:
+        print("family-public contract: not run (no family-public-contract.yaml)")
+    else:
+        print(f"family-public contract: {family_report['status']}")
     for f in report["failures"]:
         print(f"  - {f}")
     return 0 if report["status"] == "pass" else 1

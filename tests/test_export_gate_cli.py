@@ -25,9 +25,61 @@ def test_pass_writes_valid_report(tmp_path):
     t, _ = build_full_trip(tmp_path)
     r = _run(t)
     assert r.returncode == 0, r.stderr + r.stdout
+    assert "family-public contract: not run" in r.stdout
     rep = _report(t)
     assert rep["status"] == "pass" and rep["retryable"] is True
     assert validate_file(t / "export-gate-report.yaml")[0] == 0
+
+
+def test_family_public_contract_is_merged_and_can_fail(tmp_path):
+    t, _ = build_full_trip(tmp_path)
+    write_artifact(t / "family-public-contract.yaml", {
+        "min_days": 1,
+        "expected_location_keys": ["poi-1"],
+        "required_meal_ids": ["lunch"],
+    })
+    r = _run(t)
+    assert r.returncode == 1
+    assert "family-public contract: fail" in r.stdout
+    rep = _report(t)
+    assert rep["status"] == "fail"
+    assert rep["retryable"] is False
+    assert any(c["name"] == "family_location_photos" and not c["passed"]
+               for c in rep["checks"])
+    assert any(f.startswith("family: missing family location photo keys")
+               for f in rep["failures"])
+
+
+def test_family_public_contract_can_pass(tmp_path):
+    t, _ = build_full_trip(tmp_path)
+    write_artifact(t / "family-public-contract.yaml", {
+        "min_days": 1,
+        "expected_location_keys": ["poi-1"],
+        "required_meal_ids": ["lunch"],
+    })
+    html = t / "exports" / f"{t.name}-itinerary.html"
+    restaurant = (
+        '<article class="restaurant-card" data-restaurant-id="r{n}">'
+        '菜系 距離 來源 地圖 特色 為什麼選 招牌 人均</article>'
+    )
+    html.write_text(
+        '<h2>D1 8/1（週六）</h2>'
+        '<div class="day-card"></div><div class="day-card"></div>'
+        '<figure data-location-key="poi-1">'
+        '<img src="https://img.example/poi.jpg" alt="poi">'
+        '<figcaption class="photo-credit">source</figcaption></figure>'
+        '<section class="meal-options" data-meal-id="lunch">'
+        + "".join(restaurant.format(n=i) for i in range(3))
+        + '</section>',
+        encoding="utf-8",
+    )
+    r = _run(t)
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert "family-public contract: pass" in r.stdout
+    rep = _report(t)
+    assert rep["retryable"] is True
+    assert any(c["name"] == "family_location_photos" and c["passed"]
+               for c in rep["checks"])
 
 
 def test_naked_dollar_fails_retryable(tmp_path):

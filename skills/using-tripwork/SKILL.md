@@ -34,7 +34,7 @@ workspace-shape-preflight  (entry gate — first invocation only)
        ├─ itinerary-synthesis   → itinerary.yaml (canonical) + itinerary.md
        ├─ itinerary-gate        → gate-report.yaml (pass)
        ├─ export-artifact       → exports/<slug>-itinerary.md (md / gmaps / line / notion)
-       └─ export-gate           → export-gate-report.yaml (pass = pipeline complete)
+       └─ export-gate           → export-gate-report.yaml (pass = core pipeline complete; family/public requires contract)
 ```
 
 ## Iron Rules
@@ -47,6 +47,7 @@ workspace-shape-preflight  (entry gate — first invocation only)
 | Calendar-aware scheduling | Synthesis hard-avoids scheduling a POI on a closed day and flags holiday/weekend crowd days. Logic in `scripts/calendar.py`. |
 | Closing-buffer-aware scheduling | Synthesis checks every timed slot via `scripts/hours.py::closing_status`: never schedules past last order/entry, flags thin buffers, and stops if a `must_do` cannot fit. |
 | Gate ≠ content correct | `itinerary-gate` passing means structure is valid; content correctness is guaranteed upstream by `source-verify`. |
+| Family/public is contract-gated | A family/public HTML deliverable is shareable only when `family-public-contract.yaml` exists and `export-gate-report.yaml` contains passing `family_*` checks. `family-public contract: not run` means core export only, not family/public ready. |
 | Stop on confirmation | Cross-source conflict, hop flagged `far`, booking lead-time missed, regulation `banned`, or must-do verification failure → stop and ask the user. Never silently drop content. |
 | Invoke orchestrator to advance | After any stage completes, re-invoke `tripwork:orchestrator` to determine the next stage. |
 | Preflight before pipeline | First invocation in a cwd is gated by `workspace-shape-preflight`; the `work/.preflight-completed` stamp must exist before the orchestrator advances. |

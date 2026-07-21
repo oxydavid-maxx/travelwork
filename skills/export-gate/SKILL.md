@@ -44,6 +44,63 @@ The html deliverable `exports/<slug>-itinerary.html` is validated by
   deliverable has 0 photos") — catching a dropped `apply_media` return that silently shipped
   a photoless page.
 
+## Family/Public Completeness Contract
+
+`export-gate-report status: pass` is the core export hygiene pass. It is **not
+sufficient** to claim a family/public HTML deliverable is ready unless the trip
+declares a family/public contract and that contract also passes.
+
+When the requested deliverable is a shareable family/public HTML page, create
+`trips/<slug>/family-public-contract.yaml` before running this gate. The CLI loads
+that file, runs `scripts/family_public_gate.py::run_family_public_gate`, and merges
+the result into `export-gate-report.yaml` with `family_` check names and `family:`
+failure prefixes.
+
+Minimum contract shape:
+
+```yaml
+min_days: 5
+html_path: exports/<slug>-itinerary.html
+expected_location_keys:
+  - sukayu-onsen
+required_meal_ids:
+  - d1-lunch
+provided_meal_ids:
+  - hotel-breakfast
+required_restaurant_fields:
+  - 菜系
+  - 距離
+  - 來源
+  - 地圖
+  - 特色
+  - 為什麼選
+  - 招牌
+  - 人均
+```
+
+For HTML generated outside `exports/`, set `html_path` relative to
+`trips/<slug>/`.
+
+The family gate enforces the public-page contract:
+
+- every expected place appears via `data-location-key` and has a safe real
+  `<img>` plus visible `.photo-credit`;
+- every non-lodging lunch/dinner listed in `required_meal_ids` appears as a
+  `.meal-options` block;
+- every `.meal-options` block has exactly 3 `.restaurant-card` options;
+- every restaurant card carries the required detail labels;
+- lodging-provided meals listed in `provided_meal_ids` are explicitly marked as
+  `.provided-meal`;
+- internal paths/jargon (`C:/`, `_travelwork`, `.claude`, `poi_id`, `must_do`)
+  do not leak into the public page.
+
+If `family-public-contract.yaml` is absent, the CLI prints
+`family-public contract: not run`. Do not describe that output as family/public
+shareable; it only passed the core export gate.
+
+Family contract failures are not treated as blind re-render fixes. Repair the
+public HTML contract or its source data, then re-run this gate.
+
 ## Output
 
 Run `python scripts/export_gate.py trips/<slug>` — the CLI assembles the
@@ -64,6 +121,6 @@ non-distributable, 勿散布", it does NOT re-export loop. (P7)
 | Field | Value |
 |---|---|
 | Input | `trips/<slug>/exports/<slug>-itinerary.md` + the MERGED pois (`verified-pois.yaml` overlaid with optional `verified-pois-media.yaml` via `scripts/media_merge.py::apply_media`), so the photo / distributability checks see the same photos the deliverable rendered. |
-| Output | `trips/<slug>/export-gate-report.yaml` (`status` pass/fail + failures). |
-| Stop condition | `status: fail` → return to `export-artifact` to re-render. |
-| Next stage | `tripwork:orchestrator` (pipeline complete on pass). |
+| Output | `trips/<slug>/export-gate-report.yaml` (`status` pass/fail + failures, plus optional `family_*` checks when `family-public-contract.yaml` exists). |
+| Stop condition | `status: fail` → branch by `retryable`; family/public contract failures require repairing the public HTML contract or source data before re-running. |
+| Next stage | `tripwork:orchestrator` (core pipeline complete on pass; family/public shareability additionally requires a passing family contract when that deliverable is requested). |

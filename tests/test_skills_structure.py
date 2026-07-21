@@ -361,5 +361,25 @@ def test_gate_skills_cite_gate_clis():
     assert "python scripts/gate.py" in _skill("itinerary-gate")
     assert "python scripts/export_gate.py" in _skill("export-gate")
 
+def test_export_gate_documents_family_public_contract():
+    t = _skill("export-gate")
+    compact = " ".join(t.split())
+    assert "family-public-contract.yaml" in t
+    assert "family_public_gate.py" in t
+    assert "not sufficient" in compact
+    assert "family-public contract: not run" in t
+
+def test_orchestrator_does_not_conflate_core_complete_with_family_ready():
+    t = _skill("orchestrator")
+    assert "core pipeline complete" in t
+    assert "family-public-contract.yaml" in t
+    assert "do **not** call it family/public shareable" in t
+
+def test_using_tripwork_documents_family_public_contract_gate():
+    t = _skill("using-tripwork")
+    assert "Family/public is contract-gated" in t
+    assert "family-public-contract.yaml" in t
+    assert "family-public contract: not run" in t
+
 def test_orchestrator_cites_next_stage_cli():
     assert "next_stage.py" in _orch()
