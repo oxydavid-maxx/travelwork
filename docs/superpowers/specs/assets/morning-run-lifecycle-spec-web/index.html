@@ -1,0 +1,255 @@
+<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='source-sha256' content='9fe6a83bd14ba9fac226190c95cce38162ab5d621f1f96d11265230a690cc61f'><title>2026-07-25-morning-run-lifecycle</title><style>
+body{margin:0;background:#f5f1e9;color:#17233e;font:16px/1.6 system-ui,sans-serif}
+main{width:min(1080px,calc(100% - 32px));margin:auto;padding:32px 0 64px}
+h1{font:700 clamp(2.2rem,6vw,4.8rem)/1 Georgia,serif}h2{margin-top:2.4em}
+h3{padding-top:1em;border-top:1px solid #d8d0c2}table{width:100%;border-collapse:collapse;background:#fffdf8}
+th,td{padding:12px;text-align:left;vertical-align:top;border-bottom:1px solid #d8d0c2}
+code{overflow-wrap:anywhere}pre{overflow:auto;background:#17233e;color:white;padding:16px;border-radius:12px}
+a{color:#563c91}a:focus-visible{outline:3px solid #b45f06;outline-offset:3px}
+</style></head><body><main><h1>Travelwork Morning Run Lifecycle — Approved Specification</h1>
+<p><strong>Status:</strong> Approved by 光佑 on 2026-07-25
+<strong>Selected design:</strong> C — plan, reconcile Garmin actuals, and republish the same trip artifacts
+<strong>Primary trip for dogfood:</strong> <code>2026-uk-family</code></p>
+<h2>Outcome</h2>
+<p>Travelwork gains a morning-run workflow that can plan a safe and scenic 6–8 km
+route with meaningful historical and cultural waypoints, give one tap-ready
+Google Maps Directions link, then reconcile the completed Garmin activity into
+the same run record after the existing daily Garmin refresh. The trip Markdown
+and stable family webpage are rebuilt in place; no second Garmin schedule and
+no second family URL are created.</p>
+<h2>Ownership</h2>
+<table>
+<thead>
+<tr>
+<th>Boundary</th>
+<th>Owner</th>
+<th>Contract</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Garmin login, fetch, FIT download, normalization, route trackpoints</td>
+<td><code>garmin-claude-analysis</code> producer/runtime</td>
+<td>Atomic normalized activity snapshot plus per-activity route sidecars</td>
+</tr>
+<tr>
+<td>Daily trigger</td>
+<td><code>health-command-center</code></td>
+<td>Run Garmin once, publish Health, then invoke travelwork as an isolated post-sync consumer</td>
+</tr>
+<tr>
+<td>Morning-run planning, matching, comparison, Markdown block</td>
+<td><code>travelwork</code></td>
+<td><code>morning-runs.yaml</code> plus a bounded generated Markdown section</td>
+</tr>
+<tr>
+<td>Trip meaning and family output</td>
+<td>Vault <code>出遊/60_Efforts/&lt;trip-slug&gt;/</code></td>
+<td>Canonical trip pack and <code>deliverables/public/index.html</code></td>
+</tr>
+<tr>
+<td>Public serving</td>
+<td><code>app-cmd-center-web</code></td>
+<td>Stable <code>/travel/&lt;trip-slug&gt;/</code> link resolves the canonical deliverable</td>
+</tr>
+</tbody>
+</table>
+<p>Garmin remains an independent producer. Travelwork never logs in to Garmin,
+never fetches Garmin independently, and never reads the producer's SQLite
+database directly.</p>
+<h2>User-visible lifecycle</h2>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Meaning</th>
+<th>Public presentation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>planned</code></td>
+<td>A researched route exists but no Garmin activity is matched</td>
+<td>Distance target, route option, Google Maps link, safety notes, waypoint reasons and stories</td>
+</tr>
+<tr>
+<td><code>completed-summary</code></td>
+<td>Exactly one Garmin run matched, but route points are not yet available</td>
+<td>Actual statistics plus <code>實際路線待同步</code></td>
+</tr>
+<tr>
+<td><code>completed</code></td>
+<td>Garmin summary and route sidecar both matched</td>
+<td>Actual statistics, visited/missed waypoints and deterministic deviations</td>
+</tr>
+<tr>
+<td><code>pending-match</code></td>
+<td>Zero or multiple plausible activities exist</td>
+<td>Keep the plan unchanged and show no guessed actual</td>
+</tr>
+</tbody>
+</table>
+<h2>Canonical trip artifact</h2>
+<p>Each active trip may contain <code>morning-runs.yaml</code>:</p>
+<pre><code class="language-yaml">schema_version: 1
+trip_slug: 2026-uk-family
+timezone: Europe/London
+runs:
+  - run_id: 2026-07-25-windsor
+    date: 2026-07-25
+    locality: Windsor
+    hotel: Holiday Inn Express Windsor
+    target_distance_km: {min: 6, max: 8}
+    selected_option: A
+    status: planned
+    google_maps_url: https://www.google.com/maps/dir/?api=1&amp;...
+    waypoints:
+      - name: Windsor Castle
+        latitude: 51.4839
+        longitude: -0.6044
+        why_selected: Royal Windsor story and a safe, legible landmark
+        history_culture: Concise sourced historical context
+        safety_note: Daylight, crossing or surface guidance
+        visit_radius_m: 150
+    actual: null
+</code></pre>
+<p>The reconciler updates only:</p>
+<pre><code class="language-yaml">status: completed
+actual:
+  garmin_activity_id: 123456789
+  start_local: 2026-07-25T07:12:00+01:00
+  distance_km: 7.24
+  duration_min: 44.6
+  pace_min_per_km: 6.16
+  avg_hr: 143
+  max_hr: 158
+  elevation_gain_m: 38
+  matched_by: [date, activity_type, start_window, locality]
+  visited_waypoints: [Windsor Castle]
+  missed_waypoints: [The Long Walk]
+  deviations:
+    distance_delta_km: 0.24
+    distance_delta_percent: 3.4
+    notes: [實跑沒有進入 The Long Walk 的 150 m 範圍]
+</code></pre>
+<p><code>garmin_activity_id</code> is the idempotency key. Reprocessing the same normalized
+snapshot updates the same record and cannot append a duplicate run.</p>
+<h2>Garmin route contract</h2>
+<p>The existing Garmin fetch stops using <code>--no-files</code>. The same authenticated
+fetch downloads only missing FIT archives and lets the installed
+<code>garmin-givemydata</code> parser populate <code>activity_trackpoints</code>.</p>
+<p>The producer atomically publishes:</p>
+<pre><code class="language-text">health_normalized.json
+activity_routes/
+  index.json
+  &lt;activity-id&gt;.json
+</code></pre>
+<p><code>index.json</code> contains schema version, generation time, and activity ID to
+sidecar digest mappings. Each sidecar contains the immutable activity ID and
+ordered normalized points:</p>
+<pre><code class="language-json">{
+  &quot;schema_version&quot;: 1,
+  &quot;activity_id&quot;: 123456789,
+  &quot;source&quot;: &quot;garmin-fit&quot;,
+  &quot;points&quot;: [
+    {
+      &quot;seq&quot;: 0,
+      &quot;timestamp_utc&quot;: &quot;2026-07-25T06:12:00+00:00&quot;,
+      &quot;latitude&quot;: 51.48,
+      &quot;longitude&quot;: -0.61,
+      &quot;altitude_m&quot;: 26.0,
+      &quot;distance_m&quot;: 0.0
+    }
+  ]
+}
+</code></pre>
+<p>No FIT archive, token, browser profile, or raw SQLite byte enters the Vault or
+travelwork repository.</p>
+<h2>Matching rules</h2>
+<p>An activity is eligible only when all mandatory rules pass:</p>
+<ol>
+<li>Activity <code>type</code> is <code>running</code>; treadmill activity is excluded.</li>
+<li>Activity local date equals the run date in the trip timezone.</li>
+<li>Start time is between 04:00 and 11:30 local time.</li>
+<li>Activity has not been bound to a different <code>run_id</code>.</li>
+</ol>
+<p>Locality or route evidence is additive:</p>
+<ul>
+<li>With route points, the route bounding box must be within 30 km of the planned
+  locality anchor.</li>
+<li>Without route points, the activity name may match the locality.</li>
+</ul>
+<p>Exactly one eligible activity produces a match. Zero or multiple candidates
+produce <code>pending-match</code>; the reconciler does not guess.</p>
+<h2>Route comparison</h2>
+<ul>
+<li>A planned waypoint is visited when any valid actual point is within that
+  waypoint's <code>visit_radius_m</code>, default 150 m.</li>
+<li>Distance delta uses Garmin summary distance, not geometry recomputation.</li>
+<li>Pace is derived as <code>duration_min / distance_km</code> only when distance is positive.</li>
+<li>Deviation prose is deterministic and fact-based: distance delta,
+  visited/missed waypoint names, and route-availability state.</li>
+<li>Historical and cultural explanations remain the researched planning text;
+  Garmin data cannot rewrite them.</li>
+</ul>
+<h2>Markdown and webpage publication</h2>
+<p>Travelwork owns one bounded block in the family Markdown:</p>
+<pre><code class="language-markdown">&lt;!-- travelwork:morning-runs:start --&gt;
+## 晨跑路線與實跑紀錄
+...
+&lt;!-- travelwork:morning-runs:end --&gt;
+</code></pre>
+<p>The update is atomic and preserves all bytes outside the markers. If markers
+are missing, the block is inserted once at the configured section anchor. If
+markers are malformed or duplicated, reconciliation stops without writing.</p>
+<p>After a meaningful change:</p>
+<ol>
+<li>Update <code>morning-runs.yaml</code>.</li>
+<li>Update the bounded block in the family Markdown.</li>
+<li>Run <code>publish.yaml.render_command</code>.</li>
+<li>Verify the fixed public URL through HTTP.</li>
+</ol>
+<p>The public page shows planned route, actual statistics and named deviations.
+Full Garmin coordinates, FIT files and exact start/end points remain outside
+the public HTML. The family URL remains:</p>
+<p><code>https://home.luminexhealthbiohack.com/travel/&lt;trip-slug&gt;/</code></p>
+<h2>Morning-run skill requirements</h2>
+<p>The skill triggers on urgent or planned travel runs, including <code>晨跑</code>,
+<code>morning run</code>, <code>跑步路線</code>, hotel-based running, Garmin reconciliation and
+updating a trip webpage after a run.</p>
+<p>Before-run output must include:</p>
+<ul>
+<li>Three 6–8 km options unless the user requests another count.</li>
+<li>Safety, scenery and narrative value.</li>
+<li>A single Google Maps Directions link per option.</li>
+<li>Every waypoint's selection reason and concise sourced history/culture.</li>
+<li>Surface, crossing, daylight and bailout guidance.</li>
+</ul>
+<p>After-run reconciliation must consume only the normalized Garmin contracts and
+follow the matching, privacy and publication rules above.</p>
+<h2>Failure and privacy rules</h2>
+<ul>
+<li>Missing/stale Garmin data is unknown, never zero.</li>
+<li>Garmin acquisition failure keeps the last good snapshot and does not alter a
+  run record.</li>
+<li>A travelwork post-sync failure cannot invalidate the already-published
+  Health projection; it records a separate receipt and exits visibly.</li>
+<li>Public HTML must not contain raw coordinates, FIT/GPX paths, exact hotel
+  start/end points or private local paths.</li>
+<li>The first UK backfill remains <code>pending-match</code> until the 2026-07-25 Windsor
+  activity appears in the normalized snapshot. Current evidence at approval
+  time shows the newest normalized Garmin activity is 2026-07-19.</li>
+</ul>
+<h2>Acceptance outcomes</h2>
+<ol>
+<li>A Windsor morning-run request yields three researched 6–8 km routes and
+   one valid Google Maps link per route.</li>
+<li>The existing Garmin daily job produces summary and route contracts without
+   a second scheduled Garmin fetch.</li>
+<li>An exact single Garmin match updates one existing run idempotently.</li>
+<li>Ambiguous or absent matches do not fabricate actuals.</li>
+<li>The family Markdown and stable HTML show planned and actual information
+   while raw coordinates stay private.</li>
+<li>The 2026 UK family trip contains future morning-run plans and today's run
+   transitions automatically when its Garmin activity becomes available.</li>
+</ol></main></body></html>
