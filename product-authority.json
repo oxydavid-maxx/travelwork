@@ -1,0 +1,14 @@
+{
+  "accepted_spec": null,
+  "active_change": {
+    "blob_oid": "acc2918a5c7e34570be95ae0ad4cc418006abf17",
+    "path": "docs/superpowers/specs/2026-07-25-morning-run-lifecycle.md",
+    "sha256": "9fe6a83bd14ba9fac226190c95cce38162ab5d621f1f96d11265230a690cc61f",
+    "size_bytes": 8744,
+    "source_commit": "a8c4777e0df8cf04ff75d169e869f841ff2f10e3"
+  },
+  "baseline_mode": "reconstruct_required",
+  "owner_repo": ".",
+  "product_id": "travelwork-morning-run",
+  "schema_version": 1
+}
