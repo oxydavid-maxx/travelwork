@@ -9,6 +9,8 @@
 - `*.md text eol=lf` keeps skill bytes identical on Windows installs.
 - The orchestrator carries the fork's adaptive subagent dispatch table.
 
+Tests: 2225 passed, 2 skipped in CI (the two consumer-workspace checks skip there).
+
 ## 3.0.1 — two test fixtures stop sharing a coordinate with a consumer trip
 
 ### Fixed
