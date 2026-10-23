@@ -5,13 +5,150 @@ The geocode + region results are computed by the skill (using geocode.py) and
 passed in; this function holds the decision logic so it is unit-testable.
 """
 
+import datetime
+import functools
+import gzip
+import ipaddress
+import pathlib
+import re
 from urllib.parse import urlsplit
 from scripts.geocode import normalize_geocode_keys, name_matches
 
 
-def _distinct_netlocs(sources):
-    """Set of distinct lower-cased domains across a candidate's source urls."""
-    return {urlsplit(s.get("url", "")).netloc.lower() for s in sources if s.get("url")}
+# Explicit "the geocoder ran and returned no name" marker. A caller must pass
+# either a resolved display_name or this sentinel; omitting the argument used to
+# mean "skip Gate 2b", which is silence dressed as a pass.
+NO_RESOLVED_NAME = object()
+
+
+# Threaded by verify_poi when the POI's geocode object records no geocode_source.
+# Distinct from None, which keeps its existing meaning: "this caller does not
+# supply the field at all" — 19 direct classify_candidate call sites pass nothing
+# and must stay unaffected. Same split as NO_RESOLVED_NAME one gate over. (I3)
+GEOCODE_SOURCE_MISSING = object()
+
+
+_PSL = pathlib.Path(__file__).resolve().parents[1] / "assets" / "psl" / "public_suffix_list.dat.gz"
+
+
+@functools.lru_cache(maxsize=1)
+def _psl_rules():
+    """(rules, wildcards, exceptions) from the Public Suffix List snapshot, every rule
+    in its ASCII (IDNA) form. Loaded once, on the first site_key() call."""
+    rules, wild, exc = set(), set(), set()
+    for line in gzip.decompress(_PSL.read_bytes()).decode("utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("//"):
+            continue
+        rule = line.split()[0]
+        kind = rules
+        if rule.startswith("!"):
+            kind, rule = exc, rule[1:]
+        elif rule.startswith("*."):
+            kind, rule = wild, rule[2:]
+        kind.add(_ascii(rule))
+    return rules, wild, exc
+
+
+def _ascii(host):
+    try:
+        return host.encode("idna").decode("ascii").lower()
+    except UnicodeError:
+        return host.lower()
+
+
+def site_key(url):
+    """The site a URL belongs to: its registrable domain (Public Suffix List eTLD+1),
+    so `www.`, a port, `user@`, a trailing dot, letter case and sub-domains of one site
+    collapse to one key (v2.0.0 spec §5a/§5b). PSL private-section platforms
+    (blogspot.com, github.io, hatenablog.com …) keep one site per sub-domain; platforms
+    the PSL does not list are one site. An IP address is its own key; a URL with no
+    host is None (not a source)."""
+    try:
+        host = urlsplit(url or "").hostname
+    except ValueError:
+        return None
+    host = (host or "").rstrip(".")
+    if not host:
+        return None
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        pass
+    labels = _ascii(host).split(".")
+    rules, wild, exc = _psl_rules()
+    suffix_len = 1                                       # the PSL's implicit "*" rule
+    for i in range(len(labels)):
+        cand = ".".join(labels[i:])
+        if cand in exc:
+            suffix_len = len(labels) - i - 1
+            break
+        if cand in rules or (i + 1 < len(labels) and ".".join(labels[i + 1:]) in wild):
+            suffix_len = len(labels) - i
+            break
+    return ".".join(labels[-(suffix_len + 1):]) if len(labels) > suffix_len else ".".join(labels)
+
+
+def is_search_results_page(url):
+    """True for a search engine's results page -- never a source and never an operating
+    signal: the source ladder allows it for discovery only (v2.0.0 spec §5c, D9).
+
+    A literal list on purpose (guard rule (b)): the engines are a small set that hardly
+    changes, unlike blog platforms. The engine is recognised by its registrable domain,
+    then the results page by host prefix or path, so every sub-domain is covered
+    (tw.search.yahoo.com, m.search.naver.com, cn.bing.com) while place pages stay
+    sources (google.com/maps/place, map.naver.com/p/entry, the Places API)."""
+    site = site_key(url)
+    if not site:
+        return False
+    parts = urlsplit(url)
+    host = _ascii((parts.hostname or "").rstrip("."))
+    path = parts.path or "/"
+    name = site.split(".")[0]
+    if name == "google":
+        return path == "/search" or path.startswith(("/search/", "/maps/search"))
+    if site == "bing.com":
+        return path == "/search" or path.startswith("/search/")
+    if site == "duckduckgo.com":
+        return True
+    if name == "yahoo":
+        return host.startswith("search.yahoo.") or ".search.yahoo." in host
+    if site == "naver.com":
+        return host in ("search.naver.com", "m.search.naver.com")
+    if site == "daum.net":
+        return host in ("search.daum.net", "m.search.daum.net")
+    if site == "baidu.com":
+        return path == "/s" or path.startswith("/s/")
+    if name == "yandex":
+        return path == "/search" or path.startswith("/search/")
+    return False
+
+
+def official_source_url(record):
+    """The first source flagged official that is not a search engine's results page
+    (v2.1.0 §5), or None. One answer for every reader of "the official link": the
+    Markdown row, the export gate's bookable check, the itinerary gate."""
+    for s in (record or {}).get("sources") or []:
+        if isinstance(s, dict) and s.get("official") and s.get("url") \
+                and not is_search_results_page(s["url"]):
+            return s["url"]
+    return None
+
+
+def _independence(sources):
+    """(distinct sites, search-results hosts) over a candidate's source urls."""
+    sites, searches = set(), []
+    for s in sources:
+        url = s.get("url") if isinstance(s, dict) else None
+        if not url:
+            continue
+        if is_search_results_page(url):
+            searches.append(urlsplit(url).hostname or url)
+            continue
+        key = site_key(url)
+        if key:
+            sites.add(key)
+    return sites, searches
 
 
 # Google Places `businessStatus` vocabulary — the operating signal source-verify
@@ -23,39 +160,191 @@ _OPERATING_STATUS = {
 }
 
 
-def operating_from_status(business_status):
-    """Map a sourced operating signal to operating True / False, or None.
+# How old a sourced operating signal may be before it stops meaning anything.
+# Shorter than hours' 12 months (skills/source-verify/SKILL.md:41) because a
+# restaurant closes permanently faster than it changes its closing time.
+OPERATING_MAX_AGE_DAYS = 90
 
-    `business_status` is the consumer/agent-supplied signal (Google Places
-    `businessStatus` vocabulary, case-insensitive). OPERATIONAL -> True;
-    CLOSED_TEMPORARILY / CLOSED_PERMANENTLY -> False. Any absent, blank, or
-    UNRECOGNISED value -> None.
 
-    None means "operating status not established": the caller MUST refuse to
-    silently verify (record `unverified`), never default to operating. (P1)
+# Google place ids are opaque but never this short; the field is agent-authored
+# and nothing in the plugin writes it, so a shape check is the only thing
+# standing between a stray value and a cleared gate. (TW-072) Measured against
+# the live corpus, on both the schema-clean trips -- the denominator every
+# other release-note figure uses -- and the full trip set: every real
+# gmaps_place_id is exactly 27 characters, none shorter than 8, and no
+# lodging candidate carries one at all -- the floor demotes nothing real on
+# either denominator. Trip counts and per-denominator totals are not pinned
+# here and will drift as the corpus grows; see CHANGELOG's TW-072 entry for
+# the point-in-time figures measured at ship time. (M6)
+#
+# ⚠ NO PRODUCTION READER as of v0.34.0 (M3/M8). Its only caller is
+# `has_existence_proof`, which lost its production callers when Gate 2c was
+# retired below, so this shape check is currently INERT: it runs in
+# tests/test_verify.py and nowhere else. It is kept, not deleted, because
+# `has_existence_proof` is retained as a general-purpose primitive and the
+# floor is part of that primitive's meaning. Wiring it into the one place that
+# still reads `gmaps_place_id` in production
+# (`scripts/render/gmaps_links.py::maps_url`) is deliberately NOT done here —
+# that is new behaviour and needs its own red→green cycle; it is tracked for
+# the next version.
+_MIN_PLACE_ID_LEN = 8
+
+
+def _parse_iso(d):
+    try:
+        return datetime.date.fromisoformat(str(d))
+    except (TypeError, ValueError):
+        return None
+
+
+def operating_from_status(business_status, today=None):
+    """Map a sourced operating signal to (operating, reason).
+
+    Accepts the sourced object form
+    ``{"status": <enum>, "source_url": "https://…", "as_of": "YYYY-MM-DD"}``
+    and, for the transition, the legacy bare string — which is now treated as
+    NOT a signal. That is the whole point of TW-063: the bare enum recorded a
+    verdict with no way to record where it came from, so 17 of 17 dogfood POIs
+    carried a hand-typed OPERATIONAL and review could not tell. The user caught
+    a temporarily-closed restaurant by eye; Gate 0 did not.
+
+    Returns (True | False | None, reason). None means "not established" and the
+    caller MUST record `unverified` — never default to operating. (P1)
     """
     if business_status is None:
-        return None
-    key = str(business_status).strip().upper()
-    if not key:
-        return None
-    return _OPERATING_STATUS.get(key)  # True / False / None when unrecognised
+        return None, "no business_status signal obtained"
+    if isinstance(business_status, str):
+        key = business_status.strip().upper()
+        if not key:
+            return None, "no business_status signal obtained"
+        return None, ("business_status is self-attested: a bare string records a "
+                      "verdict with no source_url and no as_of, so it cannot be "
+                      "reviewed. Record {status, source_url, as_of}")
+    if not isinstance(business_status, dict):
+        return None, "business_status is neither a status object nor a string"
+
+    key = str(business_status.get("status") or "").strip().upper()
+    if key not in _OPERATING_STATUS:
+        return None, f"unrecognised business_status.status {key!r}"
+    if not str(business_status.get("source_url") or "").strip():
+        return None, "business_status has no source_url — the signal is unauditable"
+    if is_search_results_page(str(business_status.get("source_url"))):
+        return None, ("business_status.source_url is a search results page — record the "
+                      "venue's own recent page or post, or a phone check")
+
+    as_of = _parse_iso(business_status.get("as_of"))
+    if as_of is None:
+        return None, "business_status has no valid as_of date"
+    ref = _parse_iso(today) or datetime.date.today()
+    age = (ref - as_of).days
+    if age > OPERATING_MAX_AGE_DAYS:
+        return None, (f"business_status.as_of {as_of.isoformat()} is {age} days old "
+                      f"(max {OPERATING_MAX_AGE_DAYS}) — stale, re-check before scheduling")
+    return _OPERATING_STATUS[key], ""
+
+
+def has_existence_proof(poi, today=None):
+    """True when something independent of the coordinate says this place exists.
+
+    A cluster centroid is the district's midpoint — it is a position, not
+    evidence. Three proofs are accepted:
+
+      * a source the skill flagged `official: true` (its own site or booking page)
+      * a `gmaps_place_id` of plausible shape
+      * a SOURCED `business_status` — the object form {status, source_url, as_of}
+
+    The third was added in 0.34.0 (TW-072) and is what made the check this
+    function used to back (Gate 2c, retired later in the same release — see
+    classify_candidate's old call site) keyless-reachable while it still ran.
+    Gate 0 documents three routes and only the Places API route yields a
+    place_id, so before this a keyless consumer's cluster_fallback POI had one
+    possible proof (an official source) and cluster_fallback's trigger population
+    is precisely the small venues least likely to have one. Two machines reached
+    different verify_status values for the same restaurant and the artifact did
+    not show it. A dated first-party statement that the venue is operating is
+    evidence that it exists, which is what this function claims to test. (TW-072)
+
+    The bare-string business_status is deliberately NOT accepted: it is
+    self-attested, carries no source_url and no as_of, and admitting it would
+    reopen TW-063 through this gate.
+
+    `today` (TW-070 fix round 1): the third proof's recency check reads
+    wall-clock by DEFAULT (`today=None`, unchanged from before this parameter
+    existed) — a statement nobody has re-checked in three months is no longer
+    reviewable, Task 2's deliberate design. A caller that re-derives a FINISHED
+    artifact's own recorded verdict must anchor to the record's own
+    `business_status.as_of` era instead, the same way `verify_poi` (Gate 0)
+    and `scripts/rederive.py::rederive_lodging` (Gate 0, since Task 6) already
+    do — otherwise a verdict correct when written silently turns into a false
+    'conflicting'/'unverified' mismatch as real time passes with no artifact
+    change.
+
+    NOT called from `classify_candidate` any more (v0.34.0 Task 6): the
+    cluster_fallback sub-check that called it there is retired — see the
+    comment at its old call site in `classify_candidate` for why it became
+    unreachable through every real caller. This function is retained because
+    tests/test_verify.py exercises it directly as a unit (its own behaviour is
+    unchanged), and because it is still a reasonable general-purpose
+    "does independent evidence say this exists" primitive even with no
+    current production caller.
+    """
+    place_id = (poi.get("gmaps_place_id") or "").strip()
+    if len(place_id) >= _MIN_PLACE_ID_LEN:
+        return True
+    if any(s.get("official") for s in (poi.get("sources") or [])):
+        return True
+    operating, _ = operating_from_status(poi.get("business_status"), today=today)
+    return operating is True
+
+
+def normalize_lang(code):
+    """(language, region) of a language tag: case-insensitive, `_` read as `-`, the
+    script subtag dropped -- 'zh-Hant-TW' and 'ZH_tw' are both ('zh', 'TW'); 'ja' is
+    ('ja', None). An empty or non-string tag is ('', None)."""
+    parts = [p for p in str(code or "").strip().replace("_", "-").split("-") if p]
+    if not parts:
+        return "", None
+    region = parts[-1].upper() if len(parts) > 1 and re.fullmatch(r"[A-Za-z]{2}|[0-9]{3}", parts[-1]) else None
+    return parts[0].lower(), region
+
+
+def lang_matches(local_lang, source_lang):
+    """True when a source in `source_lang` is in the destination's `local_lang` (v2.1.0
+    D3): the same language, and the same region when the destination names one. A
+    Chinese source without a region never matches a Chinese destination -- `zh` is
+    not taken for Taiwan."""
+    (ll, lr), (sl, sr) = normalize_lang(local_lang), normalize_lang(source_lang)
+    if not ll or ll != sl:
+        return False
+    if ll == "zh" and sr is None:
+        return False
+    return lr is None or lr == sr
 
 
 def classify_candidate(candidate, geocoded, in_claimed_region,
                         local_lang=None, conflict_detected=False, operating=True,
-                        name_match=True):
+                        name_match=True, geocode_source=None):
     """Return (verify_status, note).
 
     Gates are evaluated in strict order (spec §5.1):
 
     Gate 0: must be operating — a permanently/temporarily closed (defunct) place
-            is 'rejected'. The skill determines `operating` from Google Maps
-            ('永久停業' / 'Permanently closed') or an official-site 404. (TW-005)
+            is 'rejected'. The skill determines `operating` via `operating_from_status`
+            (this module) from the POI's sourced `business_status` object
+            ({status, source_url, as_of}, TW-063) — never from a bare hand-typed
+            string, and never by reading a Google Maps card or inferring closure
+            from a site 404 (both measured dead in dogfood). (TW-005)
     Gate 1: >= 2 sources (else 'unverified').
             If local_lang given, at least one source must be in that lang (else 'unverified').
-    Gate 2: geocode must resolve (else 'unverified', D7).
-    Gate 3a: conflict_detected — cross-source disagreement on rating/hours/address
+    Gate 2: geocode must resolve (else 'unverified', D7). geocode_source must
+            be RECORDED (else 'unverified' — the GEOCODE_SOURCE_MISSING
+            sentinel, I3); a `cluster_fallback` value itself no longer demands
+            extra proof (TW-062's own sub-check retired in v0.34.0 — see the
+            comment at its old call site — because Gate 0 now demands strictly
+            more than that sub-check ever did).
+    Gate 2b: name_match must be determined and true (else 'unverified' when
+             undetermined, 'conflicting' when a real mismatch — see below).
+    Gate 3a: conflict_detected — cross-source disagreement on hours/address
              (else 'conflicting').  Computed by the skill and signalled via this param.
     Gate 3b: geocoded point must fall within the claimed region (else 'conflicting').
 
@@ -63,24 +352,74 @@ def classify_candidate(candidate, geocoded, in_claimed_region,
         candidate:        dict with 'sources' list, each item having 'lang'.
         geocoded:         bool — True if coordinates were successfully resolved.
         in_claimed_region: bool — True if coordinates fall inside the claimed district.
-        local_lang:       optional str, ISO-639 code for the destination's local language.
+        local_lang:       optional str, the destination's language tag; Chinese carries its
+                          region (zh-TW), matched by lang_matches.
         conflict_detected: bool (default False) — True when the skill has detected
-                          cross-source disagreement on rating/hours/address.
+                          cross-source disagreement on hours/address.
+        name_match:       True (matches / not disputed), False (a real mismatch ->
+                          'conflicting'), or None (undetermined — the caller never
+                          supplied a resolved_name to compare against -> 'unverified',
+                          not a silent pass). Default True keeps existing callers that
+                          never pass this argument unaffected.
+        geocode_source:   `candidate["geocode"]["geocode_source"]` (TW-062), now only
+                          checked for PRESENCE (I3): GEOCODE_SOURCE_MISSING
+                          (threaded by verify_poi when the POI's geocode carries
+                          no geocode_source) refuses -> 'unverified'; any string
+                          value ('nominatim' / 'nominatim_structured' /
+                          'cluster_fallback') is accepted without further
+                          distinction — the `cluster_fallback` sub-check that
+                          used to demand extra proof for that one value is
+                          retired (v0.34.0 Task 6, see the comment at its old
+                          call site). The default None never equals
+                          GEOCODE_SOURCE_MISSING, so existing callers that never
+                          pass this argument at all are unaffected, and a
+                          caller that reads the field itself and passes
+                          `gs or ""` (`scripts/rederive.py::rederive_lodging`)
+                          also stays unaffected either way.
+
+    No `today` parameter (removed fix round 1, M2 — v0.34.0 Task 6 had first
+    kept it as a dead parameter, "no longer read but kept for callers that
+    still pass it"; that was itself a defect, since a dead-but-accepted
+    kwarg silently invites a caller to believe it still does something).
+    Its sole reader was the now-retired Gate 2c `has_existence_proof` call.
+    `verify_poi` still has its OWN `today` argument (Gate 0's recency
+    anchor) and `rederive_lodging` still anchors its own
+    `operating_from_status` call the same way — neither forwards it here
+    any more, because there is nothing left here to forward it to.
     """
     sources = candidate.get("sources", [])
-    langs = {s.get("lang") for s in sources}
+    # Gate 1b reads the language of the sources that count: a search results page or a
+    # URL with no host is no source, so it cannot be the local-language one either.
+    counted = [s for s in sources if isinstance(s, dict) and s.get("url")
+               and not is_search_results_page(s["url"]) and site_key(s["url"])]
 
     # Gate 0: permanently/temporarily closed (defunct) -> rejected.
     if not operating:
         return "rejected", "permanently/temporarily closed (defunct)"
 
-    # Gate 1a: must have >= 2 INDEPENDENT sources. Independence is by distinct domain —
-    # two pages of the same site are one source, not two. (TW-023)
-    if len(_distinct_netlocs(sources)) < 2:
-        return "unverified", "needs >=2 independent sources (distinct domains)"
+    # Gate 1a: must have >= 2 INDEPENDENT sources. Independence is by distinct site —
+    # two pages of one site are one source, not two (TW-023) — and a search engine's
+    # results page is no source at all (v2.0.0 D7/D9).
+    sites, searches = _independence(sources)
+    if len(sites) < 2:
+        note = "needs >=2 independent sources (distinct sites)"
+        # sources that name a site: a search results page or a URL with no host is no source
+        on_sites = len([s for s in sources if isinstance(s, dict) and s.get("url")
+                        and site_key(s["url"]) and not is_search_results_page(s["url"])])
+        if len(sites) == 1 and on_sites == 2:
+            note += f": both sources are on {next(iter(sites))} — add one from another site"
+        elif len(sites) == 1 and on_sites > 2:
+            note += f": 所有來源都在 {next(iter(sites))}——請加一個其他網站的來源"
+        if searches:
+            note += (f"; a search results page is not a source ({', '.join(sorted(set(searches)))}): "
+                     f"fetch the page it links to")
+        return "unverified", note
 
     # Gate 1b: at least one source in destination's local language
-    if local_lang is not None and local_lang not in langs:
+    if local_lang is not None and not any(lang_matches(local_lang, s.get("lang")) for s in counted):
+        bare = [s for s in counted if normalize_lang(s.get("lang")) == ("zh", None)]
+        if normalize_lang(local_lang)[0] == "zh" and bare:
+            return "unverified", f"來源 {bare[0]['url']} 標 zh、沒有地區——請標出地區（例如 {local_lang}）"
         return "unverified", f"needs >=1 source in local language '{local_lang}'"
 
     # Gate 2: geocode must resolve. D7: a real place Nominatim can't pin is recorded
@@ -88,16 +427,99 @@ def classify_candidate(candidate, geocoded, in_claimed_region,
     if not geocoded:
         return "unverified", "geocode unresolved: could not resolve coordinates"
 
+    # geocode_source's presence is its own requirement, independent of the
+    # now-retired cluster_fallback sub-check below (I3): a POI that never
+    # records where its coordinate came from is a provenance gap on its own —
+    # the identical shape Part 1 closed for resolved_name. Real consumer data
+    # has carried this shape, not merely a hypothetical one -- a hand-rolled
+    # driver that writes geocode data outside source_verify_run and never
+    # sets geocode_source; see tests/test_e2e_v033_closure.py::_candidates'
+    # docstring for why. How many corpus POIs carry it today is not pinned
+    # here.
+    if geocode_source is GEOCODE_SOURCE_MISSING:
+        return ("unverified",
+                "geocode_source not recorded — record geocode.geocode_source: "
+                "nominatim / nominatim_structured / nominatim_address / nominatim_road / "
+                "village_centroid / cluster_fallback")
+
+    # Gate 2's cluster_fallback sub-check (TW-062) is RETIRED as of v0.34.0
+    # Task 6 (user ruling, 2026-08-09), not merely inactive. It required an
+    # existence proof independent of the coordinate (an official source, a
+    # gmaps_place_id, or — since TW-072 — a sourced business_status). Once
+    # TW-072 made a sourced business_status count as that proof, this branch
+    # became unreachable through every real caller: verify_poi's Gate 0
+    # already refuses any POI whose business_status is not sourced, and any
+    # POI it does NOT refuse necessarily carries the same proof this branch
+    # would have checked for — reading the identical field through the
+    # identical `operating_from_status`, anchored to the identical recency
+    # era (`verify_poi`'s own `today` argument at its Gate 0 call site; this
+    # function no longer accepts a `today` parameter at all, M2).
+    # scripts/rederive.py::rederive_lodging hard-coded `operating=True` and
+    # bypassed Gate 0 entirely, which is why the branch stayed reachable for
+    # lodging alone; that bypass is removed in the same task (Step 4), so
+    # nothing left in this codebase can reach this branch. Retiring it rather
+    # than shipping a check that cannot fail is the point of this release —
+    # see rederive.py's module docstring and CHANGELOG v0.34.0.
+    #
+    # Safety argument, stated precisely (corrected — the earlier version of
+    # this comment claimed the retirement "does not reopen TW-062", which
+    # ran a true clause and a false one together):
+    #   TRUE  — retiring this branch changes NO verdict. `Gate 0 ∧ Gate 2c ≡
+    #           Gate 0`: any record that still reaches here has already
+    #           satisfied Gate 2c through the identical field, and any record
+    #           Gate 0 refuses never arrives. The EVIDENCE VOCABULARY also
+    #           narrowed — Gate 0 demands a DATED, SOURCED statement, strictly
+    #           more than this branch ever asked for (an undated official link
+    #           or a bare place_id both satisfied it).
+    #   FALSE — "TW-062's shape is still blocked". It is not, and the cause is
+    #           TW-072, not this retirement: once a sourced business_status
+    #           counts as an existence proof, a POI whose ONLY evidence is that
+    #           statement reaches 'verified' with a district-centroid
+    #           coordinate — TW-062's exact shape. Gate 2c would have PASSED
+    #           those records too had it been left in place. That is a
+    #           precise, checkable PREDICATE, stated exactly so a reader knows
+    #           what to grep for rather than trusting a count that goes stale
+    #           the next time the corpus changes: geocode.geocode_source ==
+    #           'cluster_fallback' AND has_existence_proof() would be False
+    #           without the business_status clause (no official source, no
+    #           usable gmaps_place_id) AND verify_status == 'verified'. There
+    #           is no mechanical measurement of this predicate in
+    #           tests/corpus-baseline.json — measure_corpus() has no
+    #           cluster_fallback / place_id / existence-proof axis, so
+    #           `python -m tests.corpus_measure --write` will not answer this
+    #           question (v0.35.0 review wave 2, G4: an earlier version of
+    #           this comment pointed there anyway, which was itself a false
+    #           claim wearing an instruction's clothes). Check the predicate
+    #           directly against a corpus checkout instead of trusting a
+    #           number written here.
+    # Whether a centroid coordinate deserves 'verified' when the venue is
+    # provably real is the coordinate-trustworthiness question v0.34.0
+    # explicitly declines to answer (CHANGELOG "What stays out").
+    # Pinned by tests/test_verify.py::
+    # test_cluster_fallback_with_a_bare_string_business_status_is_still_unverified.
+    #
+    # has_existence_proof() itself is NOT deleted — tests/test_verify.py
+    # exercises it directly as a unit — only this call site is gone.
+
     # Gate 2b (P2): the resolved place must actually correspond to the queried
     # venue. A wrong-but-plausible top hit (renamed nearby place, name drift) is
     # 'conflicting', never 'verified'. The skill computes name_match via
     # geocode.name_matches(queried name, resolved display_name).
+    # name_match is None when the caller never supplied a resolved_name to compare
+    # (TW-062/2): that's "cannot run", not "passed" — 'unverified', not the 'False'
+    # case's 'conflicting'. None and False must not collapse to the same branch.
+    if name_match is None:
+        return (
+            "unverified",
+            "no resolved_name supplied — Gate 2b (name match) cannot run. Pass the "
+            "geocoder's display_name, or verify.NO_RESOLVED_NAME if it returned none",
+        )
     if not name_match:
         return "conflicting", "name mismatch: resolved place does not correspond to the queried venue"
 
     # Gate 3: cross-source conflict or region mismatch
     if conflict_detected:
-        return "conflicting", "cross-source disagreement on rating/hours/address"
+        return "conflicting", "cross-source disagreement on hours/address"
 
     if not in_claimed_region:
         return "conflicting", "geocoded coordinates fall outside the claimed region"
@@ -128,7 +550,8 @@ def normalize_and_validate_poi(poi):
 
 
 def verify_poi(poi, geocoded, in_claimed_region,
-               local_lang=None, conflict_detected=False, resolved_name=None):
+               local_lang=None, conflict_detected=False, resolved_name=None,
+               today=None):
     """Normalise a POI and classify it in one call.
 
     Runs normalize_and_validate_poi first (geocode key fix + name_local discipline).
@@ -141,30 +564,94 @@ def verify_poi(poi, geocoded, in_claimed_region,
     (never a silent 'verified'); a CLOSED signal -> 'rejected' before geocode gates.
     Otherwise delegates to classify_candidate with the normalised POI.
 
+    `today` anchors Gate 0's operating-signal recency (TW-070 fix round 1) —
+    a caller re-deriving a finished artifact against the record's own era
+    (e.g. scripts/rederive.py::rederive_pois) passes the record's own
+    `business_status.as_of` here instead of leaving this to read real
+    wall-clock, so a verdict correct when written cannot flip to a false
+    mismatch purely from elapsed real time. Default None reads wall-clock.
+
+    Historical note (stale through fix round 1, v0.34.0 Task 6): this
+    docstring used to say `today` ALSO anchored Gate 2c's existence-proof
+    recency via classify_candidate. Gate 2c (and the has_existence_proof call
+    that read `today`) is retired — see the comment at classify_candidate's
+    old call site — so `today` is no longer forwarded there at all;
+    classify_candidate does not even accept the parameter any more (M2).
+
     Returns (normalised_poi, verify_status, note).
     """
     normalised, reason = normalize_and_validate_poi(poi)
     if reason is not None:
         return normalised, "rejected", reason
 
-    operating = operating_from_status(normalised.get("business_status"))
+    operating, why = operating_from_status(normalised.get("business_status"), today=today)
     if operating is None:
         return (normalised, "unverified",
-                "operating status not established: no business_status signal obtained "
-                "(Gate 0 cannot pass — record an operating signal or leave unverified)")
+                f"operating status not established: {why} (Gate 0 cannot pass)")
     if not operating:
         return normalised, "rejected", "permanently/temporarily closed (defunct)"
 
-    # Gate 2b (P2): confirm the resolved place corresponds to the queried venue.
-    # source-verify queries Nominatim by name_local, so compare that against the
-    # resolved display_name. When no resolved_name is supplied the check is skipped
-    # (name_match=True) — the skill is expected to pass it.
+    # Gate 2b (P2) input. Omitting resolved_name used to set name_match=True, so a
+    # caller that forgot the argument got a verified POI with this gate never
+    # executed — the same failure shape as TW-062's Gate 2, one gate over. The
+    # default is now refusal: pass the resolved display_name, or NO_RESOLVED_NAME
+    # to state that the lookup ran and produced none. Left as None here (rather
+    # than returning early) so classify_candidate's gate ORDER decides when this
+    # fires — Gate 1 (sources) and Gate 2 (geocoded) must still fire first per
+    # skills/source-verify/SKILL.md:28's documented strict order.
     queried = normalised.get("name_local") or normalised.get("name_display") or ""
-    name_match = True if resolved_name is None else name_matches(queried, resolved_name)
+    if resolved_name is None:
+        name_match = None
+    elif resolved_name is NO_RESOLVED_NAME:
+        name_match = True
+    else:
+        name_match = name_matches(queried, resolved_name)
+
+    # geocode_source's presence check (I3) also lives inside classify_candidate
+    # now, for the identical reason Gate 2b's input does: an early return here
+    # would fire ahead of Gate 1 (sources) and Gate 2 (geocoded), which
+    # skills/source-verify/SKILL.md:28 documents as running first. Only the
+    # geocode_source STRING (or the GEOCODE_SOURCE_MISSING sentinel) is
+    # computed here and threaded down. classify_candidate's cluster_fallback
+    # sub-check (TW-062, and the has_existence_proof(candidate) call it used
+    # to make) is retired as of v0.34.0 Task 6 — see the comment at its old
+    # call site in classify_candidate.
+    geo_source = (normalised.get("geocode") or {}).get("geocode_source") or None
+    if geo_source is None:
+        geo_source = GEOCODE_SOURCE_MISSING
 
     status, note = classify_candidate(
         normalised, geocoded=geocoded, in_claimed_region=in_claimed_region,
         local_lang=local_lang, conflict_detected=conflict_detected, operating=operating,
-        name_match=name_match,
+        name_match=name_match, geocode_source=geo_source,
     )
     return normalised, status, note
+
+
+# Domain suffixes that are official by construction. Deliberately small and
+# structural — government, academic and transit authorities — rather than an
+# enumeration of venue sites, which cannot be maintained centrally. A trip adds
+# its own venues via extra_suffixes; before this existed, each consumer kept the
+# whole list in its own driver and grew it whenever a gate needed a hotel's site
+# flagged. (TW-068)
+OFFICIAL_DOMAIN_SUFFIXES = (
+    ".gov.tw", ".gov", ".edu.tw", ".edu", ".go.jp", ".lg.jp", ".govt.nz",
+    ".org.tw",
+)
+
+
+def is_official_url(url, extra_suffixes=()):
+    """True when a source URL is the venue's own or an authority's.
+
+    `sources[].official` should be set explicitly by the research stage at the
+    moment it fetches an official page — this is the fallback for URLs where that
+    was not recorded, not a replacement for it.
+    """
+    host = urlsplit(url or "").netloc.lower().split(":")[0]
+    if not host:
+        return False
+    for suf in tuple(OFFICIAL_DOMAIN_SUFFIXES) + tuple(extra_suffixes):
+        s = suf if suf.startswith(".") else "." + suf
+        if host.endswith(s) or host == s.lstrip("."):
+            return True
+    return False

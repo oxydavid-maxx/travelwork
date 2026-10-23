@@ -8,10 +8,10 @@ split + key-at-runtime, NOT from where the code lives.
     by the operator, who owns the ToS relationship.
 
   - backend=none   : ships enabled; fetches nothing (default — existing trips unchanged).
-  - backend=wiki   : Wikimedia Commons + Openverse; CC-only; safe to distribute.
-  - backend=google : key-gated AND its output is marked non-distributable by the
-    export gate; BLOCKED pending a display-surface ToS resolution — not implemented
-    here (fetch_media_entry returns None).
+  - backend=wiki   : Wikidata P18 (within 1 km) -> Openverse -> Commons; CC-only; safe to distribute.
+  - backend=google : BLOCKED pending a display-surface ToS resolution —
+    fetch_media_entry raises ValueError loudly instead of returning an empty
+    result. It is also not an allowed `--backend` CLI choice (only none/wiki).
 
 Mirrors scripts/geocode.py discipline: a descriptive User-Agent, caller-supplied
 per-source rate limiting (Nominatim/Commons policy <= 1 req/s), a per-trip cache, and
@@ -22,6 +22,12 @@ photo_source mapping (schema enum {wikimedia, openverse, google}): the `wiki` ba
 resolves to source `wikimedia` (Commons) or `openverse`; the `commons` searcher emits
 `wikimedia`, the `openverse` searcher emits `openverse`.
 """
+if __name__ == "__main__":
+    raise SystemExit("moved in tripwork 2.0: python <plugin>/scripts/tripwork.py photos <slug>")
+
+import sys as _sys
+import pathlib as _pathlib
+
 import base64
 import os
 import re
@@ -34,6 +40,9 @@ from scripts.geocode import in_region
 
 USER_AGENT = "tripwork/0.2 (https://github.com/helping-ai-workflow/tripwork)"
 BACKENDS = ("none", "wiki", "google")
+
+SCHEMAS = _pathlib.Path(__file__).resolve().parent.parent / "schemas"
+MEDIA_SCHEMA = SCHEMAS / "verified-pois-media.schema.json"
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 OPENVERSE_API = "https://api.openverse.org/v1/images/"
@@ -118,7 +127,7 @@ def _normalize_openverse_license(code):
     return "CC-" + c.upper()   # by -> CC-BY, by-sa -> CC-BY-SA, by-nc -> CC-BY-NC
 
 
-def _search_openverse(query, rate_limiter, max_results):
+def _search_openverse(query, rate_limiter, max_results, *, geo=None):
     _wait(rate_limiter)
     resp = requests.get(
         OPENVERSE_API,
@@ -144,7 +153,7 @@ def _search_openverse(query, rate_limiter, max_results):
     return out
 
 
-def _search_commons(query, rate_limiter, max_results):
+def _search_commons(query, rate_limiter, max_results, *, geo=None):
     _wait(rate_limiter)
     resp = requests.get(
         COMMONS_API,
@@ -178,13 +187,77 @@ def _search_commons(query, rate_limiter, max_results):
     return out
 
 
-_SEARCHERS = {"openverse": _search_openverse, "commons": _search_commons}
+WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 
 
-def _select_candidate(cands, geo, radius_km):
-    """First license-clean, location-matched candidate. A geotagged candidate must be
-    within radius_km of the POI geocode; an un-geotagged candidate is trusted on the
-    name_local query match (landmark-only)."""
+def _lang_of(name):
+    """The search language from the name's script: kana -> ja, hangul -> ko, other CJK -> zh."""
+    s = str(name or "")
+    if re.search(r"[぀-ヿ]", s):
+        return "ja"
+    if re.search(r"[가-힯]", s):
+        return "ko"
+    if re.search(r"[一-鿿]", s):
+        return "zh"
+    return "en"
+
+
+def _claim(claims, prop):
+    return ((claims.get(prop) or [{}])[0].get("mainsnak") or {}).get("datavalue", {}).get("value")
+
+
+def _search_wikidata(query, rate_limiter, max_results, *, geo=None):
+    """Wikidata's representative image (P18) of the entity named `query` whose coordinates
+    (P625) lie within 1 km of the POI's verified geocode (spec §4). Probe on 30 public POIs:
+    17 hits, 17/17 the place itself. No coordinates, no lookup."""
+    lat0, lng0 = (geo or {}).get("lat"), (geo or {}).get("lng")
+    if not (isinstance(lat0, (int, float)) and isinstance(lng0, (int, float))):
+        return []
+    lang = _lang_of(query)
+    _wait(rate_limiter)
+    r = requests.get(WIKIDATA_API, params={"action": "wbsearchentities", "search": query, "language": lang,
+                                           "uselang": lang, "format": "json", "limit": max_results},
+                     headers={"User-Agent": USER_AGENT}, timeout=15)
+    r.raise_for_status()
+    ids = [e["id"] for e in (r.json() or {}).get("search", []) if e.get("id")]
+    if not ids:
+        return []
+    _wait(rate_limiter)
+    r = requests.get(WIKIDATA_API, params={"action": "wbgetentities", "ids": "|".join(ids), "props": "claims", "format": "json"},
+                     headers={"User-Agent": USER_AGENT}, timeout=15)
+    r.raise_for_status()
+    ents = (r.json() or {}).get("entities") or {}
+    for qid in ids:
+        claims = (ents.get(qid) or {}).get("claims") or {}
+        co, img = _claim(claims, "P625"), _claim(claims, "P18")
+        if not (co and img) or not in_region(co["latitude"], co["longitude"], lat0, lng0, 1.0):
+            continue
+        _wait(rate_limiter)
+        r = requests.get(COMMONS_API, params={"action": "query", "format": "json", "titles": "File:" + img,
+                                              "prop": "imageinfo", "iiprop": "url|extmetadata", "iiurlwidth": 1280},
+                         headers={"User-Agent": USER_AGENT}, timeout=15)
+        r.raise_for_status()
+        page = next(iter((((r.json() or {}).get("query") or {}).get("pages") or {"": {}}).values()))
+        ii = (page.get("imageinfo") or [{}])[0]
+        meta = ii.get("extmetadata") or {}
+        source_url = ii.get("descriptionurl")
+        image_url = ii.get("thumburl") or ii.get("url")
+        if not (image_url and source_url and str(source_url).startswith("https://")):
+            return []
+        return [{"source": "wikimedia", "image_url": image_url, "thumb_url": None,
+                 "license": (meta.get("LicenseShortName") or {}).get("value", ""),
+                 "author": _strip_html((meta.get("Artist") or {}).get("value", "")) or "Unknown",
+                 "source_url": source_url, "lat": co["latitude"], "lng": co["longitude"]}]
+    return []
+
+
+_SEARCHERS = {"wikidata": _search_wikidata, "openverse": _search_openverse, "commons": _search_commons}
+
+
+def _candidates(cands, geo, radius_km):
+    """License-clean, location-matched candidates, in search order. A geotagged candidate
+    must be within radius_km of the POI geocode; an un-geotagged candidate is trusted on
+    the name_local query match (landmark-only)."""
     lat0, lng0 = (geo or {}).get("lat"), (geo or {}).get("lng")
     have_geo = isinstance(lat0, (int, float)) and isinstance(lng0, (int, float))
     for c in cands:
@@ -194,8 +267,12 @@ def _select_candidate(cands, geo, radius_km):
         if isinstance(clat, (int, float)) and isinstance(clng, (int, float)) and have_geo:
             if not in_region(clat, clng, lat0, lng0, radius_km):
                 continue   # geotagged but wrong place
-        return c
-    return None
+        yield c
+
+
+def _select_candidate(cands, geo, radius_km):
+    """The first of _candidates, or None."""
+    return next(_candidates(cands, geo, radius_km), None)
 
 
 # --------------------------------------------------------------------------- #
@@ -206,6 +283,28 @@ def _to_data_uri(content, content_type):
     return f"data:{content_type};base64,{base64.b64encode(content).decode('ascii')}"
 
 
+def _shrink(content, ctype):
+    """Long edge <= 640 px, JPEG q80: a reader page carries every photo inline (spec §4)."""
+    try:
+        import io
+        from PIL import Image, ImageOps
+        im = Image.open(io.BytesIO(content))
+        im.load()
+        im = ImageOps.exif_transpose(im)
+    except Exception:
+        return content, ctype
+    if max(im.size) <= 640:
+        return content, ctype
+    im.thumbnail((640, 640))
+    if im.mode not in ("RGB", "L"):
+        bg = Image.new("RGB", im.size, (255, 255, 255))
+        bg.paste(im.convert("RGBA"), mask=im.convert("RGBA").split()[-1])
+        im = bg
+    out = io.BytesIO()
+    im.save(out, "JPEG", quality=80, optimize=True)
+    return out.getvalue(), "image/jpeg"
+
+
 def _fetch_image(url, rate_limiter):
     _wait(rate_limiter)
     resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=15)
@@ -213,7 +312,8 @@ def _fetch_image(url, rate_limiter):
     ctype = (resp.headers.get("Content-Type") or "image/jpeg").split(";")[0].strip()
     if not ctype.startswith("image/"):
         return None
-    return _to_data_uri(resp.content, ctype)
+    data, ctype = _shrink(resp.content, ctype)
+    return _to_data_uri(data, ctype)
 
 
 def _download_entry(cand, rate_limiter):
@@ -225,7 +325,10 @@ def _download_entry(cand, rate_limiter):
     photo = {"data": full}
     thumb_url = cand.get("thumb_url")
     if thumb_url and thumb_url != cand["image_url"]:
-        thumb = _fetch_image(thumb_url, rate_limiter)
+        try:
+            thumb = _fetch_image(thumb_url, rate_limiter)
+        except requests.RequestException:
+            thumb = None        # a failed thumbnail (Openverse answers 424) keeps the full image
         if thumb is not None:
             photo["thumb"] = {"data": thumb}
     author = cand.get("author") or "Unknown"
@@ -252,20 +355,27 @@ def _is_landmark(poi):
     return not any(tok in cat for tok in _NON_LANDMARK)
 
 
-def fetch_media_entry(poi, backend="none", *, sources=("openverse", "commons"),
+def fetch_media_entry(poi, backend="none", *, sources=("wikidata", "openverse", "commons"),
                       radius_km=5.0, rate_limiters=None, max_results=8, cache=None):
     """Resolve a license-clean, location-matched landmark photo for one POI.
 
-    Returns a media entry {photo, photo_attribution, photo_source} or None (no clean
-    match / backend none|google). `rate_limiters` is an optional {source: RateLimiter}
-    (callers SHOULD pass one per source in production — Commons/Openverse policy).
-    `cache` is an optional dict keyed by poi id, storing the entry or None (negative
-    cache), mirroring geocode.resolve_place.
+    Returns a media entry {photo, photo_attribution, photo_source} or None (backend
+    none, or no clean match under backend wiki). Raises ValueError for backend
+    google (BLOCKED — see module docstring) or any other unknown backend.
+    `rate_limiters` is an optional {source: RateLimiter} (callers SHOULD pass one
+    per source in production — Commons/Openverse policy). `cache` is an optional
+    dict keyed by poi id, storing the entry or None (negative cache), mirroring
+    geocode.resolve_place.
     """
     if backend == "none":
         return None
     if backend == "google":
-        return None   # BLOCKED: no display-surface ToS clearance / no personal-cache exception
+        raise ValueError(
+            "backend 'google' is blocked: Google Maps user photos carry no "
+            "display-surface licence, so an entry sourced that way makes the "
+            "deliverable permanently non-distributable. Five real trips shipped "
+            "78 hand-written google entries while this function silently returned "
+            "an empty result. Use --backend wiki.")
     if backend != "wiki":
         raise ValueError(f"unknown photo backend: {backend!r}")
 
@@ -285,30 +395,35 @@ def fetch_media_entry(poi, backend="none", *, sources=("openverse", "commons"),
         if not searcher:
             continue
         try:
-            cands = searcher(str(name), rate_limiters.get(src), max_results)
+            cands = searcher(str(name), rate_limiters.get(src), max_results, geo=geo)
         except requests.RequestException:
             continue
-        cand = _select_candidate(cands, geo, radius_km)
-        if cand:
-            entry = _download_entry(cand, rate_limiters.get(src))
+        for cand in _candidates(cands, geo, radius_km):
+            try:                                   # a failed download tries the next candidate
+                entry = _download_entry(cand, rate_limiters.get(src))
+            except requests.RequestException:
+                entry = None
             if entry:
                 break
+        if entry:
+            break
 
     if cache is not None:
         cache[key] = entry
     return entry
 
 
-def build_media(pois, backend="none", *, landmark_only=True, **kw):
+def build_media(pois, backend="none", *, landmark_only=True, existing=None, **kw):
     """Build a verified-pois-media side-file doc {"media": {poi_id: entry}} for POIs.
 
-    Landmark-only by default (skips restaurant/hotel-type categories). Each POI is
-    resolved via fetch_media_entry; only successful matches are recorded.
+    Stage 1 (spec §4): an entry already in `existing` (the current side-file, e.g. one the
+    user's own script wrote) is the user's -- copied unchanged, never looked up again.
+    Stage 2: the rest are resolved via fetch_media_entry (landmark-only by default).
     """
-    media = {}
+    media = dict(existing or {})
     for poi in pois or []:
         pid = poi.get("id")
-        if not pid:
+        if not pid or pid in media:
             continue
         if landmark_only and not _is_landmark(poi):
             continue
@@ -319,11 +434,117 @@ def build_media(pois, backend="none", *, landmark_only=True, **kw):
 
 
 def write_media_sidefile(path, doc):
-    """Atomically write a media side-file as YAML (mirrors geocode_cache.save_cache)."""
-    parent = os.path.dirname(str(path))
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    tmp = str(path) + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        yaml.safe_dump(doc, fh, allow_unicode=True, sort_keys=True)
-    os.replace(tmp, path)
+    """Write the media side-file, refusing to leave an invalid one on disk.
+
+    Validating after writing is not equivalent: the invalid file survives to be
+    read by the export gate, which then reports a render-layer defect for what is
+    actually a producer bug.
+
+    The temp file is validated with an EXPLICIT schema_path (MEDIA_SCHEMA =
+    schemas/verified-pois-media.schema.json), not by basename lookup:
+    tempfile.mkstemp() names the temp file randomly, so
+    scripts.validate_artifact.validate_file's SCHEMA_BY_BASENAME dict would never
+    resolve it to this schema (or any schema) -- validate_file would return its
+    OWN usage-error code (2, "unknown artifact basename ...; pass --schema
+    explicitly") regardless of whether doc is actually schema-valid. That would
+    make every self-check fail for the wrong reason: a basename-resolution miss,
+    not a real validity signal. Passing schema_path explicitly sidesteps the
+    basename lookup entirely and is also correct regardless of what final `path`
+    a caller chooses to write to.
+    """
+    import tempfile
+    from scripts.validate_artifact import validate_file
+    parent = os.path.dirname(str(path)) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(suffix=".yaml", dir=parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            yaml.safe_dump(doc, fh, allow_unicode=True, sort_keys=False)
+        rc, msgs = validate_file(tmp, schema_path=MEDIA_SCHEMA)
+        if rc != 0:
+            raise ValueError(f"media side-file failed its schema self-check: {msgs}")
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def main(argv):
+    """CLI: python <plugin>/scripts/tripwork.py photos <slug> [--backend {none,wiki}]
+    [--dry-run] -- build & write trips/<slug>/data/verified-pois-media.yaml from
+    trips/<slug>/data/verified-pois.yaml.
+
+    backend=none (default) is a no-op: existing trips are unchanged and nothing
+    is written, matching fetch_media_entry's own backend=none no-op. backend=wiki
+    resolves each landmark POI's photo via Wikimedia Commons + Openverse and
+    writes the side-file. --dry-run resolves media but writes nothing, reporting
+    the count that WOULD be written.
+
+    'google' is deliberately not an allowed --backend choice -- argparse rejects
+    it with its own usage error, which is exit 2 the same way any other invalid
+    choice is, consistent with fetch_media_entry's loud refusal above.
+
+    Exit 0 written (including the backend=none / --dry-run / nothing-resolved
+    no-op cases) / 1 schema self-check failed, nothing written / 2 missing
+    verified-pois.yaml, unreadable/malformed input, or bad invocation.
+    """
+    import argparse
+    import pathlib
+
+    ap = argparse.ArgumentParser(description=main.__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("trip_dir", help="trips/<slug> directory")
+    ap.add_argument("--backend", choices=["none", "wiki"], default="none",
+                    help="photo backend to use (default: none, a no-op)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="resolve media but write nothing; report what would happen")
+    args = ap.parse_args(argv)
+
+    trip_dir = pathlib.Path(args.trip_dir)
+    from scripts.paths import artifact_path
+    in_path = artifact_path(trip_dir, "verified-pois.yaml")
+    if not in_path.is_file():
+        print(f"missing required input: {in_path}", file=_sys.stderr)
+        return 2
+
+    if args.backend == "none":
+        print("photo_adapter: backend=none, nothing to do")
+        return 0
+
+    try:
+        raw = yaml.safe_load(in_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        print(f"YAML parse error in {in_path}: {exc}", file=_sys.stderr)
+        return 2
+    pois = (raw or {}).get("pois")
+    if not isinstance(pois, list):
+        print(f"{in_path}: 'pois' is not a list", file=_sys.stderr)
+        return 2
+
+    out_path = artifact_path(trip_dir, "verified-pois-media.yaml")
+    existing = {}
+    if out_path.is_file():
+        try:
+            existing = (yaml.safe_load(out_path.read_text(encoding="utf-8")) or {}).get("media") or {}
+        except yaml.YAMLError as exc:
+            print(f"YAML parse error in {out_path}: {exc}", file=_sys.stderr)
+            return 2
+    media_doc = build_media(pois, args.backend, existing=existing)
+    n = len(media_doc["media"]) - len(existing)
+
+    if args.dry_run:
+        print(f"photo_adapter: --dry-run, would write {n} media entries to {out_path}")
+        return 0
+
+    if n == 0:
+        print("photo_adapter: no media resolved, nothing written")
+        return 0
+
+    try:
+        write_media_sidefile(str(out_path), media_doc)
+    except ValueError as exc:
+        print(f"schema self-check failed, nothing written: {exc}", file=_sys.stderr)
+        return 1
+
+    print(f"photo_adapter: wrote {n} media entries to {out_path}")
+    return 0

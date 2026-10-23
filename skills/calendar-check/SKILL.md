@@ -5,14 +5,14 @@ description: Use when trip-brief.yaml is ready and the destination's public-holi
 
 # calendar-check
 
-Establish the destination's public-holiday calendar for the trip date range so synthesis can schedule around crowds and closures. Produces `trips/<slug>/calendar.yaml` (schema: `schemas/calendar.schema.json`).
+Establish the destination's public-holiday calendar for the trip date range so synthesis can schedule around crowds and closures. Produces `trips/<slug>/data/calendar.yaml` (schema: `schemas/calendar.schema.json`).
 
 Two closure axes feed synthesis. This stage owns the **trip-wide** axis (public holidays); the **per-POI** axis (fixed weekly/holiday closures) is recorded on `verified-pois.yaml` by `source-verify`.
 
 ## Method
 
 - Read `dates.start`/`dates.end` and the destination from `trip-brief.yaml`.
-- Use the consumer harness `WebSearch`; prefer the **official** government holiday calendar (e.g. a national gazette / government portal), in the local language.
+- Research using the **source ladder** in `tripwork:using-tripwork` (WebSearch, else WebFetch against an official page, else a search HTML endpoint for discovery only); prefer the **official** government holiday calendar (e.g. a national gazette / government portal), in the local language.
 - List every public holiday that falls within the trip range, **including substitute/observed holidays** (e.g. a Sunday holiday's Monday make-up day — these draw weekend-level crowds).
 - For each holiday record `date`, `name_local`, `name_display`, `type`, and `impact`:
   - `crowds: true` — major attractions/markets are packed (treat like a weekend).
@@ -27,9 +27,9 @@ Two closure axes feed synthesis. This stage owns the **trip-wide** axis (public 
 
 ## Output
 
-Write `trips/<slug>/calendar.yaml`, then validate it:
-`python scripts/validate_artifact.py trips/<slug>/calendar.yaml`
-(exit 0 required before returning). Return to `tripwork:orchestrator`. Crowd/closure logic for synthesis lives in `scripts/calendar.py` (`is_high_crowd`, `holiday_on`, `poi_closed_on`).
+Write `trips/<slug>/data/calendar.yaml`, then validate it:
+`python <plugin>/scripts/tripwork.py validate <slug> calendar`
+(exit 0 required before returning). Return to `tripwork:tripwork-orchestrator`. Crowd/closure logic for synthesis lives in `scripts/trip_calendar.py` (`is_high_crowd`, `holiday_on`, `poi_closed_on`).
 
 ## Stop-on-Confirmation
 
@@ -39,7 +39,7 @@ If a public holiday with `closures: true` overlaps a day a `must_do` item can on
 
 | Field | Value |
 |---|---|
-| Input | `trips/<slug>/trip-brief.yaml` (destination + `dates`). |
-| Output | `trips/<slug>/calendar.yaml` (public holidays in range with `impact` + official source). |
-| Stop condition | A `closures: true` holiday blocks the only feasible day for a `must_do` → ask user. |
-| Next stage | `tripwork:orchestrator`. |
+| Input | `trips/<slug>/data/trip-brief.yaml` (destination + `dates`). |
+| Output | `trips/<slug>/data/calendar.yaml` (public holidays in range with `impact` + official source). |
+| Stop condition | A `closures: true` holiday blocks the only feasible day for a `must_do` (`holiday_blocks_must_do`) → ask user. |
+| Next stage | `tripwork:tripwork-orchestrator`. |

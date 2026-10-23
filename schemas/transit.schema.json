@@ -29,6 +29,20 @@
           "note": {
             "type": "string"
           },
+          "days": {
+            "type": "array",
+            "description": "Optional weekdays the window applies on (TW-093); omitted = every day. scripts/transit.py::in_peak.",
+            "items": {
+              "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+            }
+          },
+          "areas": {
+            "type": "array",
+            "description": "Optional area names the window covers (TW-093), matched against the day's area; omitted = everywhere.",
+            "items": {
+              "type": "string"
+            }
+          },
           "sources": {
             "type": "array",
             "minItems": 1,

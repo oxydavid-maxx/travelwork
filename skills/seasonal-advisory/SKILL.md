@@ -7,15 +7,17 @@ description: Use when routing.yaml + accommodations.yaml are ready and the desti
 
 Establish the seasonal/weather hazards (driving conditions, heat, typhoon/monsoon, etc.)
 for the destination over the trip dates, and compute daylight for each overnight stop.
-Produces `trips/<slug>/seasonal.yaml` (schema: `schemas/seasonal.schema.json`). Mirrors
+Produces `trips/<slug>/data/seasonal.yaml` (schema: `schemas/seasonal.schema.json`). Mirrors
 `calendar-check`: an official-source environmental advisory, **not** an iron-rule gate.
 
 ## Method (no API key)
 
-- Use the consumer harness `WebSearch`; prefer **official** local-language sources: the
-  national road authority (e.g. NZTA road conditions), the met service, and the parks /
-  alpine authority (e.g. DOC alpine warnings). The plugin bundles no weather API — this is
-  climatological/official-source research, the same model as `calendar-check`.
+- Research using the **source ladder** in `tripwork:using-tripwork` (WebSearch, else
+  WebFetch against an official page, else a search HTML endpoint for discovery only);
+  prefer **official** local-language sources: the national road authority (e.g. NZTA road
+  conditions), the met service, and the parks / alpine authority (e.g. DOC alpine warnings).
+  The plugin bundles no weather API — this is climatological/official-source research, the
+  same model as `calendar-check`.
 - Record each hazard as an `items[]` entry: `hazard` (open vocabulary — `road_closure`,
   `chains_required`, `heat`, `typhoon`, `monsoon`, `altitude`, …), `note`, `severity`,
   optional `applies_to` / `effective_window`, and `sources` (≥ 1 **official**).
@@ -27,8 +29,8 @@ Produces `trips/<slug>/seasonal.yaml` (schema: `schemas/seasonal.schema.json`). 
   the user** before synthesis (same pattern as a routing `far` hop or a `travel-advisory`
   `banned` item). Record the decision in `work/<slug>/stage-state.yaml`.
 - **`advisory` / `info` (soft)** — chains often required, carry warm gear, short daylight,
-  heat/hydration, typhoon-season flexibility. → fed into the synthesis checklist /
-  contingency; never blocks.
+  heat/hydration, typhoon-season flexibility. → fed into the synthesis checklist;
+  never blocks.
 
 ## Daylight (computed, `scripts/season.py`)
 
@@ -42,18 +44,18 @@ driving leg whose estimated arrival is `after_dark(arrival, date, lat)` — emit
 
 ## Output
 
-Write `trips/<slug>/seasonal.yaml`, then validate it:
-`python scripts/validate_artifact.py trips/<slug>/seasonal.yaml`
-(exit 0 required before returning). Return to `tripwork:orchestrator`.
+Write `trips/<slug>/data/seasonal.yaml`, then validate it:
+`python <plugin>/scripts/tripwork.py validate <slug> seasonal`
+(exit 0 required before returning). Return to `tripwork:tripwork-orchestrator`.
 
 ## Stage Contract
 
 | Field | Value |
 |---|---|
-| Input | `trips/<slug>/trip-brief.yaml` (destination, dates, transport) + `trips/<slug>/routing.yaml` + `trips/<slug>/accommodations.yaml`. |
-| Output | `trips/<slug>/seasonal.yaml` (hazard `items` + per-stop `daylight`). |
-| Stop condition | A `blocking` hazard makes a leg/stop infeasible → ask user. |
-| Next stage | `tripwork:orchestrator`. |
+| Input | `trips/<slug>/data/trip-brief.yaml` (destination, dates, transport) + `trips/<slug>/data/routing.yaml` + `trips/<slug>/data/accommodations.yaml`. |
+| Output | `trips/<slug>/data/seasonal.yaml` (hazard `items` + per-stop `daylight`). |
+| Stop condition | A `blocking` hazard makes a leg/stop infeasible (`blocking_hazard`) → ask user. |
+| Next stage | `tripwork:tripwork-orchestrator`. |
 
 ## Common Mistakes
 

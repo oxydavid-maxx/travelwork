@@ -19,7 +19,7 @@ SKILL_NAMES = sorted(p.name for p in SKILLS.iterdir()
                      if (p / "SKILL.md").exists() and p.name not in META_SKILLS)
 
 # Names that were removed/renamed and must never reappear outside a removal note.
-OBSOLETE = []
+OBSOLETE = ["LINE 短文", "LINE 純文字", ".txt 同名"]   # v1.1: the LINE text deliverable is retired
 
 
 def test_every_skill_mentioned_in_readme():
@@ -60,17 +60,24 @@ def test_photo_enrichment_deliverable_mentioned():
 
 import re
 
+from scripts.next_stage import _CHAIN
+
 def _mermaid_block():
     m = re.search(r"```mermaid\n(.*?)```", README, re.DOTALL)
     assert m, "README has no ```mermaid block"
     return m.group(1)
 
-# Canonical pipeline order (mirrors the orchestrator SKILL.md Stage Selection order).
-_PIPELINE_ORDER = [
-    "trip-brief", "travel-advisory", "destination-research", "source-verify",
-    "routing-audit", "accommodation-research", "inter-stop-legs", "calendar-check",
-    "seasonal-advisory", "transit-detail", "cost-rollup", "itinerary-synthesis",
-    "itinerary-gate", "export-artifact", "export-gate",
+# Canonical pipeline order.
+# First 11 stages are derived from the shipped `_CHAIN` in scripts/next_stage.py
+# (TW-079: this used to be 15 hand-written literals — a second, hand-kept copy of
+# the same sequence `_CHAIN` already defines, the same rebuilt-subject shape as
+# this release's other defects).
+# The last 4 stay literal because `_CHAIN` only covers through cost-rollup:
+# synthesis, the two gates, and export are each their own rule branch (rules
+# 12-16) in next_stage.py, not part of a shipped sequence constant. If a future
+# release collects them into one, delete these four lines and derive them too.
+_PIPELINE_ORDER = [s.removeprefix("tripwork:") for _a, s, _r in _CHAIN] + [
+    "itinerary-synthesis", "itinerary-gate", "tripwork-export-artifact", "export-gate",
 ]
 
 def test_tw060_every_stage_in_mermaid_block():
@@ -82,3 +89,25 @@ def test_tw060_mermaid_stage_order_matches_pipeline():
     block = _mermaid_block()
     positions = [block.find(s) for s in _PIPELINE_ORDER]
     assert positions == sorted(positions), "§2 mermaid stage order diverges from the pipeline order"
+
+
+def test_implausible_stop_condition_in_readme():
+    """C3: routing-audit's `implausible` hop stop-on-confirmation (this release)
+    has no row in §4's "它什麼時候會停下來問你" list — the freshness test above
+    only checks skill-name coverage, so this new stop condition drifted silently.
+    """
+    assert "預估時間不合理" in README, (
+        "README §4 stop-condition list has no row for a hop flagged `implausible`. "
+        "Update README in the same PR."
+    )
+
+
+def test_source_verify_gate0_readme_requires_sourced_status():
+    """C3: README §2's source-verify row described Gate 0 as if any hand-typed
+    operating status counted. TW-063 (this release) made Gate 0 require a
+    SOURCED status ({status, source_url, as_of}) — a bare self-attested value
+    now yields `unverified`, not a pass."""
+    assert "查證來源與日期" in README, (
+        "README §2 source-verify row does not say the operating status needs a "
+        "verifiable source + date, not a hand-typed value."
+    )

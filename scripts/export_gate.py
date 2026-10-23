@@ -6,12 +6,11 @@ naked $, broken links, name-not-a-link, and bookable POIs missing an official
 source link. Output shape matches itinerary-gate: {status, checks, failures}
 (reuses schemas/gate-report.schema.json).
 """
-import sys as _sys
-import pathlib as _pathlib
-if __name__ == "__main__" and __package__ in (None, ""):
-    # run as `python scripts/export_gate.py`: make `from scripts.X import ...` resolve
-    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent))
+if __name__ == "__main__":
+    raise SystemExit("moved in tripwork 2.0: python <plugin>/scripts/tripwork.py export-gate <slug>")
 
+
+import hashlib
 import re
 from urllib.parse import unquote
 
@@ -19,6 +18,7 @@ from urllib.parse import unquote
 # the canonical itinerary-gate and these render gates share ONE implementation. These
 # calls are render-layer defense-in-depth; the canonical gate is the primary guard.
 from scripts.text_hygiene import jargon_failures, kana_gloss_failures
+from scripts.verify import official_source_url
 
 # A $ NOT immediately preceded by a backslash (i.e. not already escaped as \$).
 _NAKED_DOLLAR = re.compile(r"(?<!\\)\$")
@@ -27,11 +27,6 @@ _LINK = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 # Standalone map-token labels that mean the POI name was left as dead text.
 _MAP_TOKENS = {"地圖", "地图", "Map", "map"}
 
-# Sentinel returned by main()'s opt() helper when an optional artifact exists
-# but fails to parse as YAML — distinct from None (absent), so callers can
-# tell "malformed" apart from "not provided" and exit 2 instead of proceeding
-# with a garbage value.
-_MALFORMED = object()
 
 def _photo_failures(pois):
     """Photo ATTRIBUTION presence (cross-axis matrix F4), shared by BOTH gates: a POI
@@ -128,7 +123,7 @@ def _maps_link_failures(targets):
 # F1 (P7-twin): failure substrings that re-rendering CANNOT fix — they are upstream
 # DATA defects (a photo with no attribution, a bookable POI with no official source).
 # A fail whose only failures are these is non-retryable: the orchestrator must halt and
-# ask the user to fix the data, NOT loop export-artifact (which re-renders the same defect).
+# ask the user to fix the data, NOT loop tripwork-export-artifact (which re-renders the same defect).
 _DATA_DEFECT_MARKERS = ("missing attribution", "official source link")
 
 
@@ -143,7 +138,7 @@ def run_export_gate(md_text, pois, min_days=None):
     """Return {status, checks, failures} for a rendered itinerary markdown.
 
     Args:
-        md_text:  full text of exports/<slug>-itinerary.md
+        md_text:  full text of the markdown deliverable (trips/<slug>/<stem>.md)
         pois:     list of verified-pois dicts (verify_status, booking, sources, names)
         min_days: optional int; fail if fewer than this many '### ' day sections
                   (or if the deliverable is empty). Guards against an export that
@@ -178,9 +173,7 @@ def run_export_gate(md_text, pois, min_days=None):
             continue
         if not (p.get("booking") or {}).get("required"):
             continue
-        official = next(
-            (s.get("url") for s in (p.get("sources") or []) if s.get("official")), None
-        )
+        official = official_source_url(p)
         names = [n for n in (p.get("name_display"), p.get("name_local")) if n]
         rows = _find_rows(md_text, names)
         if not rows:
@@ -224,7 +217,8 @@ def run_export_gate(md_text, pois, min_days=None):
             "checks": checks, "failures": failures}
 
 _HREF = re.compile(r'href="([^"]*)"')
-_DAY_CARD = re.compile(r'class="day-card"')
+# v1.0 reader (spec §6): one <section class="page day"> per trip day.
+_DAY_PAGE = re.compile(r'<section class="page day"')
 # <img ... src="..."> — captures the src so the gate can whitelist its scheme.
 # run_html_gate's _HREF inspector is href-only and structurally blind to src=
 # (cross-axis matrix OOS-1), so a dedicated matcher is required. Double-quoted
@@ -232,11 +226,125 @@ _DAY_CARD = re.compile(r'class="day-card"')
 _IMG_SRC = re.compile(r'<img\b[^>]*\bsrc="([^"]*)"', re.IGNORECASE)
 # An <img src> is safe only as an inline base64 image or an https URL — no http,
 # no javascript:, no data: of a non-image type. (security #6)
-_SAFE_IMG_SRC = re.compile(r'(?i)^(data:image/|https://)')
+# v1.0: the page opens offline in Quick Look, so an image must be embedded.
+_SAFE_IMG_SRC = re.compile(r'(?i)^data:image/')
+_LICENCES = ("SIL Open Font License", "ISC License")
+# v1.1 TW-D3: the notices open the file as a comment, not a footer on screen
+_NOTICE = re.compile(r"<!doctype html>\s*<!--(.*?)-->", re.S | re.I)
+# v1.1 user check: every OpenStreetMap credit is plain text (the user: a copyright link
+# gets tapped by accident); the zoom bar's live-map link is a feature, not the credit
+_OSM_TEXT = '<span class="attrmini">© OpenStreetMap</span>'
+_OSM_CARD = re.compile(r'<p class="attr">[^<]*OpenStreetMap')
+# v1.0 P5: map images are CSS backgrounds (one rule per distinct image), fonts are
+# @font-face data: -- any url() in the page must be embedded too.
+_CSS_URL = re.compile(r'url\(\s*["\']?([^"\')]*)')
+_SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)</script\s*>", re.S | re.I)
+_ACTIVE_TAGS = frozenset({"iframe", "frame", "frameset", "object", "embed", "applet", "base", "form"})
+_SCRIPT_URL = re.compile(r"(?i)^\s*(javascript|vbscript|data:text/html)")
+
+
+def _script_hashes():
+    # call the shipped constant, never a copied hash (CLAUDE.md "guards call their subject")
+    # the two shipped constants: the centring script (every build) and the publish page's
+    from scripts.render.reader.centre import CENTRE_JS
+    from scripts.render.reader.publish import PUBLISH_JS
+    return frozenset({hashlib.sha256(CENTRE_JS.encode()).hexdigest(),
+                      hashlib.sha256(PUBLISH_JS.encode()).hexdigest()})
+
+
+_SCRIPT_SHA256 = _script_hashes()
+_SAFE_CSS_URL = re.compile(r'(?i)^data:(image|font)/')
+_MAP_FRAME = re.compile(r'<label class="mframe[^"]*"[^>]*>.*?</label>', re.S)
+_MAP_CARD = re.compile(r'<details class="mapc">.*?</details>', re.S)
+
+
+class _ReaderScan(__import__("html.parser").parser.HTMLParser):
+    """Structure facts the regexes cannot see: a ⌄ (.cv) outside a <summary>, and a
+    move row (.leg, not .zero) with no m-<mode> icon."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack, self.cv_outside, self.legs, self.legs_without_mode = [], 0, 0, 0
+        self._leg_depth, self._leg_has_mode = None, False
+        self.active = 0        # active content outside the one whitelisted <script>
+
+    def handle_starttag(self, tag, attrs):
+        cls = (dict(attrs).get("class") or "").split()
+        # v1.0 P6: judged on parsed attributes (a quoted " onigiri=" in alt text is not a
+        # handler; <svg/onload=…> is) -- handlers, embedding tags, refresh, script URLs
+        if (tag in _ACTIVE_TAGS or (tag == "meta" and any(k == "http-equiv" for k, _ in attrs))
+                or any(k.startswith("on") or _SCRIPT_URL.match(v or "") for k, v in attrs)):
+            self.active += 1
+        if tag == "span" and "cv" in cls and "summary" not in self.stack:
+            self.cv_outside += 1
+        if tag == "div" and "leg" in cls and "zero" not in cls and self._leg_depth is None:
+            self._leg_depth, self._leg_has_mode = len(self.stack), False
+            self.legs += 1
+        if tag == "svg" and self._leg_depth is not None and any(c.startswith("m-") for c in cls):
+            self._leg_has_mode = True
+        if tag not in ("img", "input", "meta", "br", "path", "circle", "rect", "line", "polyline",
+                       "polygon", "ellipse"):
+            # v1.1 §8.1: an in-page anchor toggle (来源 open/close) is an expandable too
+            href = dict(attrs).get("href") or ""
+            self.stack.append("summary" if tag == "a" and href.startswith("#t-") else tag)
+
+    def handle_endtag(self, tag):
+        names = {tag, "summary"} if tag == "a" else {tag}
+        if names & set(self.stack):
+            while self.stack and self.stack.pop() not in names:
+                pass
+        if self._leg_depth is not None and len(self.stack) <= self._leg_depth:
+            if not self._leg_has_mode:
+                self.legs_without_mode += 1
+            self._leg_depth = None
+
+def html_safety_failures(html_text):
+    """What makes a page we ship unsafe or not self-contained (v2.1.0: the reader and the
+    survey's list page share it): an href that is neither http(s) nor an in-page anchor
+    that lands, a malformed Maps link, a script that is not one of the reader's own, an
+    image or stylesheet url that is not embedded, the fonts' licence notice missing."""
+    failures = []
+    ids = set(re.findall(r'\sid="([^"]+)"', html_text))
+    for href in _HREF.findall(html_text):
+        if href.startswith("#"):
+            # v1.1 §8.1: an in-page anchor is fine when it lands somewhere
+            if href[1:] not in ids:
+                failures.append(f"non-http href in deliverable: in-page link to a missing target '{href[:60]}'")
+        elif not re.match(r"https?://", href):
+            failures.append(f"non-http href in deliverable: '{href}'")
+    failures.extend(_maps_link_failures(_HREF.findall(html_text)))
+    # v1.0 P6 (spec §6.10): the only scripts allowed are the reader's own shipped
+    # constants (centring, publish), byte for byte -- no attributes, no src, no inline handlers.
+    scan = _ReaderScan()
+    scan.feed(html_text)
+    scripts = _SCRIPT.findall(html_text)
+    if (len(scripts) != html_text.lower().count("<script")
+            or any(attrs.strip() or hashlib.sha256(body.encode()).hexdigest() not in _SCRIPT_SHA256
+                   for attrs, body in scripts)
+            or scan.active):
+        failures.append("script not on the whitelist in deliverable")
+    for src in _IMG_SRC.findall(html_text):
+        if not _SAFE_IMG_SRC.match(src):
+            failures.append(f"non-embedded <img src>: '{src[:80]}'")
+    foot = _NOTICE.match(html_text)
+    missing = [l for l in _LICENCES if not foot or l not in foot.group(1)]
+    if foot and not missing:
+        # the whole notice, as the shipped licence files give it (ISC wants the
+        # copyright and permission notice itself, not the licence's name)
+        from scripts.render.reader.page import licence_notice
+        if " ".join(foot.group(1).split()) != " ".join(licence_notice()[4:-3].split()):
+            missing = ["the notice the shipped licence files give"]
+    if missing:
+        failures.append(f"licence notice missing: {', '.join(missing)}")
+    for url in _CSS_URL.findall(html_text):
+        if not _SAFE_CSS_URL.match(url):
+            failures.append(f"non-embedded url() in stylesheet: '{url[:80]}'")
+    return failures
+
 
 def run_html_gate(html_text, pois, min_days=None, media_count=0):
     """Validate a rendered one-page HTML deliverable. Structure/format only:
-    non-empty, >= min_days day-cards, every href is http(s), no raw <script>.
+    non-empty, >= min_days day-cards, every href is http(s), no <script> but the reader's two shipped constants.
     Output shape matches run_export_gate. (dogfood D4)
 
     P8: when `media_count` (the number of entries in the verified-pois-media side-file
@@ -250,24 +358,35 @@ def run_html_gate(html_text, pois, min_days=None, media_count=0):
     if not stripped:
         failures.append("deliverable is empty")
     else:
-        n_days = len(_DAY_CARD.findall(html_text))
+        n_days = len(_DAY_PAGE.findall(html_text))
         if min_days is not None and n_days < min_days:
-            failures.append(f"too few day cards: {n_days} < {min_days}")
-        for href in _HREF.findall(html_text):
-            if not re.match(r"https?://", href):
-                failures.append(f"non-http href in deliverable: '{href}'")
-        failures.extend(_maps_link_failures(_HREF.findall(html_text)))
-        if "<script" in html_text.lower():
-            failures.append("raw <script> in deliverable (data not escaped)")
-        for src in _IMG_SRC.findall(html_text):
-            if not _SAFE_IMG_SRC.match(src):
-                failures.append(f"unsafe <img src>: '{src}'")
+            failures.append(f"too few day pages: {n_days} < {min_days}")
+        failures.extend(html_safety_failures(html_text))
+        scan = _ReaderScan()
+        scan.feed(html_text)
+        if scan.cv_outside:
+            failures.append(f"{scan.cv_outside} expand marker(s) outside a <details> summary")
+        if scan.legs_without_mode:
+            failures.append(f"{scan.legs_without_mode} move row(s) without a mode icon")
+        # v1.1: every frame drawn from tiles carries the credit itself (the phone hides the
+        # card-level line); the card-level line must still name OpenStreetMap (v1.0 P5)
+        for frame in _MAP_FRAME.findall(html_text):
+            if 'class="mimg ' in frame and _OSM_TEXT not in frame:
+                failures.append("map tiles shown without their attribution")
+                break
+        else:
+            for card in _MAP_CARD.findall(html_text):
+                if 'class="mimg ' in card and not _OSM_CARD.search(card):
+                    failures.append("map tiles shown without their attribution")
+                    break
         failures.extend(jargon_failures(html_text, pois))
     failures.extend(_photo_failures(pois))
 
     # P8: a present media side-file that produced no <img> means the overlay was lost
     # (dropped apply_media return) — fail so it does not silently ship photoless.
-    if media_count and not _IMG_SRC.findall(html_text or ""):
+    # v1.0 P7: the reader embeds each distinct photo once as a CSS background and
+    # marks every shown photo with class "bpi"; an <img> still counts
+    if media_count and not (_IMG_SRC.findall(html_text or "") or 'class="bpi ' in (html_text or "")):
         failures.append(
             f"media side-file present ({media_count} entries) but rendered "
             f"deliverable has 0 photos")
@@ -282,10 +401,18 @@ def run_html_gate(html_text, pois, min_days=None, media_count=0):
          "passed": not any("href" in f for f in failures)},
         {"name": "maps_link_resolvable_form",
          "passed": not any("Google Maps link" in f for f in failures)},
-        {"name": "no_raw_script",
-         "passed": not any("<script>" in f for f in failures)},
-        {"name": "img_src_safe",
-         "passed": not any("unsafe <img src>" in f for f in failures)},
+        {"name": "scripts_whitelisted",
+         "passed": not any("script not on the whitelist" in f for f in failures)},
+        {"name": "img_src_offline",
+         "passed": not any("non-embedded" in f for f in failures)},
+        {"name": "licences_present",
+         "passed": not any("licence notice missing" in f for f in failures)},
+        {"name": "expandables_are_details",
+         "passed": not any("expand marker" in f for f in failures)},
+        {"name": "legs_have_mode_icon",
+         "passed": not any("without a mode icon" in f for f in failures)},
+        {"name": "map_attribution_present",
+         "passed": not any("map tiles shown without" in f for f in failures)},
         {"name": "no_internal_jargon",
          "passed": not any("leaked into user-facing" in f for f in failures)},
         {"name": "photo_has_attribution",
@@ -301,15 +428,94 @@ def run_html_gate(html_text, pois, min_days=None, media_count=0):
             "checks": checks, "failures": failures}
 
 
-def _find_rows(md_text, names):
-    """All markdown TABLE rows (lines starting '|') containing any POI name.
+# render_markdown_page's day-level lodging line ("**宿**：<poi cell>") — not
+# table-formatted, so the '|'-prefixed scan below cannot see it on its own.
+_LODGING_LINE_PREFIX = "**宿**："
 
-    Restricting to table rows means a `### Day` heading that merely names the POI no
-    longer shadows the real scheduled row; collecting ALL matching rows means a POI
-    appearing on several days passes if any of its rows carries the official link. (TW-044)
+
+def _find_rows(md_text, names):
+    """Every markdown line that represents a SCHEDULED itinerary row for any of
+    the given POI names: a day-table row ('|'-prefixed, inside a '### ' day
+    section) or a render_markdown_page '**宿**：' lodging line.
+
+    Restricting table rows to '### '-opened sections (TW-069 fix round 1) closes
+    TWO defects render_markdown_page (Task 4) made reachable, in opposite
+    directions:
+
+      - FALSE NEGATIVE: the lodging line is not '|'-prefixed, so the old
+        table-only scan never found a bookable lodging POI referenced ONLY
+        there — `rows` came back empty and the check silently skipped it
+        ("POI not scheduled into this deliverable"), even though it WAS
+        scheduled, just not on a table row. Fixed by matching the lodging
+        line's own literal prefix, independent of table structure.
+
+      - FALSE POSITIVE: the new '## 費用估算' cost table's '|'-prefixed rows
+        CAN legitimately repeat a POI's name inside an upstream-authored
+        cost.yaml line-item label (e.g. a lodging line item "示品酒店嘉義
+        （2晚）" contains the hotel's name "示品酒店嘉義") — the old scan
+        counted that as a scheduled row, so a correctly-linked lodging POI
+        FAILED the gate on the cost row's account (a cost row never carries a
+        maps/official link) even though its real lodging line carried the
+        link fine. Fixed STRUCTURALLY, not by excluding names: a '|' row only
+        counts while scanning is inside a day — a '### ' heading opens that
+        window, ANY '## ' heading closes it (whatever that section is
+        called) — so the cost table, which lives under its own '## ' heading,
+        is never eligible regardless of what its labels say. This does not
+        depend on a POI's name being absent from a cost label, which is
+        upstream-authored content this gate does not control.
+
+    A '### ' heading that merely NAMES a POI (TW-044) is still excluded either
+    way — it is never itself a '|'-prefixed or lodging-prefixed line.
     """
-    return [line for line in md_text.splitlines()
-            if line.lstrip().startswith("|") and any(name and name in line for name in names)]
+    rows = []
+    in_day = False
+    for line in md_text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("### "):
+            in_day = True
+            continue
+        if stripped.startswith("## "):
+            in_day = False
+            continue
+        if stripped.startswith(_LODGING_LINE_PREFIX):
+            if any(name and name in line for name in names):
+                rows.append(line)
+            continue
+        if in_day and stripped.startswith("|") and any(name and name in line for name in names):
+            rows.append(line)
+    return rows
+
+
+def _inputs_fingerprint(trip_dir):
+    """Hash of every artifact export-gate judges the deliverables against
+    (EXPORT_GATE_INPUTS), so two reports can tell whether the source changed between them."""
+    import hashlib
+    from scripts.orchestration import EXPORT_GATE_INPUTS
+    from scripts.paths import artifact_path
+    h = hashlib.sha256()
+    for name in EXPORT_GATE_INPUTS:
+        p = artifact_path(trip_dir, name)
+        h.update(name.encode() + b"\0" + (p.read_bytes() if p.is_file() else b"") + b"\0")
+    return h.hexdigest()[:16]
+
+
+def _repeats(report, previous_path):
+    """True when this fail is exactly the previous report's retryable fail AND the source
+    changed in between. export is a fixed program (v2.0.0): a retryable fail goes back to
+    itinerary-synthesis to fix the source text, so the same failures from changed inputs
+    mean the plugin's own rendering is at fault. Re-running the gate on unchanged inputs
+    repeats nothing."""
+    import yaml
+    if report["status"] != "fail" or not previous_path.is_file():
+        return False
+    try:
+        prev = yaml.safe_load(previous_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return False
+    return (prev.get("status") == "fail" and prev.get("retryable") is True
+            and sorted(prev.get("failures") or []) == sorted(report["failures"])
+            and bool(prev.get("inputs_fingerprint"))
+            and prev.get("inputs_fingerprint") != report.get("inputs_fingerprint"))
 
 
 def merge_reports(md_report, html_report):
@@ -333,71 +539,60 @@ def merge_reports(md_report, html_report):
 
 
 def main(argv):
-    """CLI: python scripts/export_gate.py <trip-dir> — gate the rendered
+    """CLI: python <plugin>/scripts/tripwork.py export-gate <slug> — gate the rendered
     deliverables (md + optional html) against the MERGED pois (verified-pois +
     chosen lodgings + media overlay, all assembled here) and write
-    <trip-dir>/export-gate-report.yaml. Exit 0 pass / 1 fail / 2 missing input."""
+    work/<slug>/export-gate-report.yaml (paths from scripts/paths.py).
+    Exit 0 pass / 1 fail / 2 missing input."""
     import argparse
     import pathlib
     import sys
     import yaml
 
-    from scripts.gate import chosen_lodging_pois
-    from scripts.media_merge import apply_media, load_media
-
     ap = argparse.ArgumentParser(description=main.__doc__)
+    from scripts.paths import artifact_path, deliverable_paths, report_path, work_dir_for
+
     ap.add_argument("trip_dir")
+    ap.add_argument("--work-dir", default=None)
     args = ap.parse_args(argv)
     d = pathlib.Path(args.trip_dir)
-    slug = d.resolve().name
-    md_path = d / "exports" / f"{slug}-itinerary.md"
+    w = pathlib.Path(args.work_dir) if args.work_dir else work_dir_for(d)
+    try:
+        with open(artifact_path(d, "trip-brief.yaml"), encoding="utf-8") as fh:
+            paths = deliverable_paths(d, yaml.safe_load(fh) or {})
+    except (OSError, yaml.YAMLError, KeyError, TypeError, ValueError) as exc:
+        print(f"trip-brief has no usable short_name/dates to name the deliverables: {exc!r}",
+              file=sys.stderr)
+        return 2
+    md_path = paths["md"]
     if not md_path.is_file():
         print(f"missing deliverable: {md_path}", file=sys.stderr)
         return 2
 
-    def opt(name):
-        try:
-            with open(d / name, encoding="utf-8") as fh:
-                return yaml.safe_load(fh)
-        except FileNotFoundError:
-            return None
-        except yaml.YAMLError as exc:
-            print(f"malformed optional artifact {name}: {exc!r}",
-                  file=sys.stderr)
-            return _MALFORMED
-
-    pois_doc = opt("verified-pois.yaml")
-    if pois_doc is _MALFORMED:
+    from scripts.trip_inputs import TripInputError, trip_inputs
+    try:
+        itin, poi_map, _, media_count = trip_inputs(d)       # the renderers' own inputs
+    except TripInputError as exc:
+        print(exc, file=sys.stderr)
         return 2
-    if not pois_doc:
-        print("missing verified-pois.yaml", file=sys.stderr)
-        return 2
-    accommodations_doc = opt("accommodations.yaml")
-    if accommodations_doc is _MALFORMED:
-        return 2
-    poi_map = {p["id"]: p for p in
-               (pois_doc.get("pois") or []) + chosen_lodging_pois(accommodations_doc)}
-    media_doc = load_media(d / "verified-pois-media.yaml")
-    media_count = len((media_doc or {}).get("media") or {})
-    poi_map = apply_media(poi_map, media_doc)      # NON-mutating: capture return
     merged_pois = list(poi_map.values())
-
-    itin = opt("itinerary.yaml")
-    if itin is _MALFORMED:
-        return 2
-    itin = itin or {}
     min_days = len(itin.get("days") or []) or None
 
     md_report = run_export_gate(md_path.read_text(encoding="utf-8"),
                                 merged_pois, min_days=min_days)
-    html_path = d / "exports" / f"{slug}-itinerary.html"
+    html_path = paths["html"]
     html_report = None
     if html_path.is_file():
         html_report = run_html_gate(html_path.read_text(encoding="utf-8"),
                                     merged_pois, min_days=min_days,
                                     media_count=media_count)
     report = merge_reports(md_report, html_report)
-    (d / "export-gate-report.yaml").write_text(
+    report["inputs_fingerprint"] = _inputs_fingerprint(d)
+    report["repeat_of_previous"] = _repeats(report, report_path(w, "export-gate-report.yaml"))
+    if report["repeat_of_previous"]:
+        report["retryable"] = False
+    w.mkdir(parents=True, exist_ok=True)
+    report_path(w, "export-gate-report.yaml").write_text(
         yaml.safe_dump(report, allow_unicode=True, sort_keys=False),
         encoding="utf-8")
     print(f"export-gate: {report['status']} "
@@ -405,7 +600,3 @@ def main(argv):
     for f in report["failures"]:
         print(f"  - {f}")
     return 0 if report["status"] == "pass" else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main(_sys.argv[1:]))

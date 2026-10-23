@@ -102,13 +102,15 @@ def test_e2e_happy_path_adapter_to_gate(mocker, tmp_path):
     # 0.23.0 maps/place/?q=place_id form must not reappear.
     assert "&amp;query_place_id=ChIJ_landmark" in html
     assert "maps/place/?q=place_id" not in html
-    # PR3: photo img + escaped caption + pure-CSS lightbox, no script
-    assert "<img" in html and 'type="checkbox"' in html
+    # PR3: photo img + escaped caption, pure CSS; since v1.0 P6 the one script is the
+    # desktop centring constant (spec §6.9) -- the photo's author markup adds none
+    assert 'class="bpi ' in html and 'type="checkbox"' in html
     assert "data:image/jpeg;base64," in html
     assert "CC-BY-SA" in html
     assert "Commons User &lt;b&gt;bold&lt;/b&gt;" in html    # author markup escaped
     assert "<b>bold</b>" not in html
-    assert "<script" not in html.lower()
+    from scripts.render.reader.centre import CENTRE_JS
+    assert html.lower().count("<script") == 1 and f"<script>{CENTRE_JS}</script>" in html
 
     # PR4: both gates PASS on the clean, attributed, distributable deliverable
     pois = list(merged.values())
@@ -148,4 +150,4 @@ def test_e2e_gate_rejects_unsafe_img_src():
     html = render_html_page(ITIN, {"pp": dict(PP)}) + '<img src="http://evil.example/x.jpg">'
     r = run_html_gate(html, pois=[], min_days=1)
     assert r["status"] == "fail"
-    assert any("unsafe <img src>" in f for f in r["failures"])
+    assert any("non-embedded <img src>" in f for f in r["failures"])

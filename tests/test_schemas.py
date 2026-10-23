@@ -87,6 +87,39 @@ def test_candidate_empty_sources_rejected():
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(bad, schema)
 
+def test_candidate_business_status_bare_string_valid():
+    """Back-compat form. Gate 0 (scripts/verify.py::operating_from_status) treats
+    this as self-attested and never lets it pass — schema-valid is not the same
+    as Gate-0-passable — but it must stay schema-valid for existing trips."""
+    schema = _load_schema("candidates.schema.json")
+    ok = {"candidates": [{"id": "x", "name_local": "엑스", "name_display": "X",
+                          "category": "restaurant", "business_status": "OPERATIONAL",
+                          "sources": [{"url": "https://a.example", "lang": "ko"}]}]}
+    jsonschema.validate(ok, schema)
+
+def test_candidate_business_status_object_valid():
+    """The sourced form (TW-068 fix round 1) — the only shape that can clear
+    Gate 0. Mirrors verified-pois.schema.json's business_status oneOf so the
+    signal survives into the verified artifact unchanged."""
+    schema = _load_schema("candidates.schema.json")
+    ok = {"candidates": [{"id": "x", "name_local": "엑스", "name_display": "X",
+                          "category": "restaurant",
+                          "business_status": {"status": "OPERATIONAL",
+                                              "source_url": "https://a.example/x",
+                                              "as_of": "2026-08-01"},
+                          "sources": [{"url": "https://a.example", "lang": "ko"}]}]}
+    jsonschema.validate(ok, schema)
+
+def test_candidate_business_status_object_missing_as_of_rejected():
+    schema = _load_schema("candidates.schema.json")
+    bad = {"candidates": [{"id": "x", "name_local": "엑스", "name_display": "X",
+                           "category": "restaurant",
+                           "business_status": {"status": "OPERATIONAL",
+                                               "source_url": "https://a.example/x"},
+                           "sources": [{"url": "https://a.example", "lang": "ko"}]}]}
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(bad, schema)
+
 def test_advisory_requires_at_least_one_official_source():
     schema = _load_schema("advisory.schema.json")
     bad = {"items": [{"topic": "battery", "rule": "no overhead bin",
@@ -210,6 +243,22 @@ def test_itinerary_checklist_accepted():  # TW-034 surface support
     doc["checklist"] = ["lithium battery: carry-on only", "book restaurant 1 week ahead"]
     jsonschema.validate(doc, schema)
 
+def test_itinerary_row_accepts_leg_index():   # TW-069 fix round 1, Important 1
+    schema = _load_schema("itinerary.schema.json")
+    jsonschema.validate(
+        _itin([{"slot": "move", "text": "自駕南下", "from": "板橋", "to": "嘉義市",
+               "leg_index": 0}]), schema)
+
+def test_itinerary_row_leg_index_optional_backward_compat():
+    schema = _load_schema("itinerary.schema.json")
+    jsonschema.validate(_itin([{"slot": "move", "text": "A→B"}]), schema)   # no leg_index
+
+def test_itinerary_row_leg_index_rejects_negative():
+    schema = _load_schema("itinerary.schema.json")
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            _itin([{"slot": "move", "text": "x", "leg_index": -1}]), schema)
+
 def _vp_item(**over):
     base = {"id": "x", "name_local": "x", "name_display": "x",
             "category": "restaurant", "district": "x",
@@ -285,7 +334,9 @@ def test_verified_pois_geocode_declares_source():
     schema = json.load(open(root / "schemas" / "verified-pois.schema.json"))
     geo = schema["properties"]["pois"]["items"]["properties"]["geocode"]["properties"]
     assert "geocode_source" in geo
-    assert geo["geocode_source"]["enum"] == ["nominatim", "nominatim_structured", "cluster_fallback"]
+    assert geo["geocode_source"]["enum"] == ["nominatim", "nominatim_structured", "nominatim_address",
+                                             "nominatim_road", "village_centroid",   # v2.1.0: Taiwan
+                                             "cluster_fallback"]          # v1.3.0: the address point
 
 def test_trip_brief_declares_overnight_stops_and_facility_needs():
     import json, pathlib
@@ -544,6 +595,39 @@ def test_tw043_swapped_coords_rejected_everywhere():
     ]:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(build(), _load_schema(name))
+
+def _routing_doc(hop_extra):
+    hop = {"from": "西區", "to": "太保市", "mins": 45, "flag": "ok"}
+    hop.update(hop_extra)
+    return {"clusters": [{"district": "西區", "pois": ["a"]}], "hops": [hop], "warnings": []}
+
+
+def test_i1_sourced_duration_source_requires_source_url():
+    """I1: nothing in the schema required `source_url` when a hop declares a
+    non-default `duration_source` -- the hop's `required` list is only
+    [from,to,mins,flag]. A hop claiming `sourced_timetable` with no
+    `source_url` must be schema-invalid; the identical hop WITH a source_url
+    must stay valid."""
+    schema = _load_schema("routing.schema.json")
+    for src in ("map_estimate", "sourced_timetable"):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(_routing_doc({"duration_source": src}), schema)
+        jsonschema.validate(
+            _routing_doc({"duration_source": src, "source_url": "https://transit.example/x"}),
+            schema,
+        )
+
+
+def test_i1_transition_rule_agent_estimate_and_absent_duration_source_unaffected():
+    """Transition rule (I1): existing artifacts must keep validating. A hop
+    with NO duration_source at all (every pre-TW-066 hop), and a hop that
+    explicitly declares the default `agent_estimate`, must not be forced to
+    carry a source_url -- the conditional is scoped to hops that actually
+    declare a NON-DEFAULT duration_source."""
+    schema = _load_schema("routing.schema.json")
+    jsonschema.validate(_routing_doc({}), schema)  # no duration_source key at all
+    jsonschema.validate(_routing_doc({"duration_source": "agent_estimate"}), schema)
+
 
 def test_tw008_source_url_must_be_http():
     schema = _load_schema("advisory.schema.json")
@@ -804,3 +888,194 @@ def test_accommodations_pure_han_candidate_needs_no_name_zh():   # v0.30.0
 def test_accommodations_unverified_kana_candidate_exempt():   # v0.30.0
     schema = _load_schema("accommodations.schema.json")
     jsonschema.validate(_acc_kana_candidate(verify_status="unverified"), schema)
+
+
+def test_gate_report_check_accepts_examined_and_rejects_negative(tmp_path):
+    """A gate-report check may carry an examined:N count (v0.32.0 rederive).
+
+    Without it the whole verdict-re-derivation mechanism cannot report how many
+    records it actually looked at, which is the vacuous-true defect this release
+    exists to close.
+    """
+    from scripts.validate_artifact import validate_file
+    import pathlib
+
+    schema_path = pathlib.Path(__file__).resolve().parent.parent / "schemas" / "gate-report.schema.json"
+
+    ok = tmp_path / "gate-report.yaml"
+    ok.write_text(
+        "status: pass\n"
+        "checks:\n"
+        "  - name: verdicts_match\n"
+        "    passed: true\n"
+        "    examined: 17\n"
+        "failures: []\n",
+        encoding="utf-8",
+    )
+    assert validate_file(str(ok))[0] == 0
+
+    # Examined:0 is the critical case — distinguishes "inspected 0 records"
+    # (no verdict to derive) from "inspected N records" (verdict is real).
+    zero = tmp_path / "gate-report-zero.yaml"
+    zero.write_text(
+        "status: pass\n"
+        "checks:\n"
+        "  - name: verdicts_match\n"
+        "    passed: true\n"
+        "    examined: 0\n"
+        "failures: []\n",
+        encoding="utf-8",
+    )
+    assert validate_file(str(zero), schema_path=str(schema_path))[0] == 0
+
+    # Examined:-1 must be rejected by minimum:0 constraint.
+    bad = tmp_path / "gate-report-neg.yaml"
+    bad.write_text(
+        "status: pass\n"
+        "checks:\n"
+        "  - name: verdicts_match\n"
+        "    passed: true\n"
+        "    examined: -1\n"
+        "failures: []\n",
+        encoding="utf-8",
+    )
+    # schema_path passed explicitly because gate-report-neg.yaml is not in
+    # SCHEMA_BY_BASENAME; basenames must match exactly (gate-report.yaml, not variants).
+    rc, msgs = validate_file(str(bad), schema_path=str(schema_path))
+    assert rc == 1
+    assert any("examined" in m for m in msgs)
+
+
+def test_business_status_tel_source_url_validates():
+    """TW-063 fix round 1 (Finding 1): `tel:<number>` is the only operating-signal
+    route available to a consumer without a Places API key (SKILL.md:30 route 3
+    — 行前電話確認). Rejecting it would make this fix name an unobtainable source,
+    the exact defect TW-063 closes."""
+    schema = _load_schema("verified-pois.schema.json")
+    data = {"pois": [{
+        "id": "x", "name_local": "x", "name_display": "x",
+        "category": "restaurant", "district": "x",
+        "geocode": {"lat": 1.0, "lng": 2.0},
+        "sources": [{"url": "https://a.example", "lang": "ko"}, {"url": "https://b.example", "lang": "zh"}],
+        "verify_status": "verified",
+        "business_status": {"status": "OPERATIONAL",
+                            "source_url": "tel:+886-5-2593133",
+                            "as_of": "2026-08-01"},
+    }]}
+    jsonschema.validate(data, schema)
+
+
+def _business_status_poi(source_url):
+    return {"pois": [{
+        "id": "x", "name_local": "x", "name_display": "x",
+        "category": "restaurant", "district": "x",
+        "geocode": {"lat": 1.0, "lng": 2.0},
+        "sources": [{"url": "https://a.example", "lang": "ko"}, {"url": "https://b.example", "lang": "zh"}],
+        "verify_status": "verified",
+        "business_status": {"status": "OPERATIONAL",
+                            "source_url": source_url,
+                            "as_of": "2026-08-01"},
+    }]}
+
+
+def test_business_status_places_api_url_still_validates():
+    """Regression guard for I4's tightened pattern: a plausible Google Places
+    API URL must keep validating."""
+    schema = _load_schema("verified-pois.schema.json")
+    jsonschema.validate(
+        _business_status_poi("https://places.googleapis.com/v1/places/ChIJN1t_tDeuEmsRUsoyG83frY4"),
+        schema,
+    )
+
+
+@pytest.mark.parametrize("junk", ["tel:", "https://", "tel:not-a-number", "https:// nonsense"])
+def test_i4_source_url_pattern_rejects_four_chars_of_junk(junk):
+    """I4: `^(https?://|tel:)` has no end anchor, so `source_url` (Gate 0's sole
+    auditability carrier, new in this release) is satisfied by as little as the
+    literal string 'tel:' with nothing after it. `scripts/verify.py` only checks
+    non-empty, so none of these four junk values were ever rejected."""
+    schema = _load_schema("verified-pois.schema.json")
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(_business_status_poi(junk), schema)
+
+
+def test_verified_pois_accepts_a_resolved_name(tmp_path):
+    """TW-071: the POI schema forbade the one field Gate 2b needs to be
+    re-derivable, while accommodations.schema.json:193 declared it. Measured at
+    HEAD: pois[].items is additionalProperties:false with 20 properties and no
+    resolved_name, so an agent holding Nominatim's display_name had nowhere legal
+    to put it."""
+    from scripts.validate_artifact import validate_file
+    p = tmp_path / "verified-pois.yaml"
+    p.write_text(
+        "pois:\n"
+        "  - id: p1\n"
+        "    name_local: 花磚博物館\n"
+        "    name_display: 花磚博物館\n"
+        "    category: sight\n"
+        "    district: 嘉義市西區\n"
+        "    verify_status: verified\n"
+        "    resolved_name: 台灣花磚博物館\n"
+        "    geocode:\n"
+        "      lat: 23.48\n"
+        "      lng: 120.44\n"
+        "    sources:\n"
+        "      - {url: 'https://a.example.tw/p', lang: zh}\n"
+        "      - {url: 'https://b.example.com/q', lang: en}\n",
+        encoding="utf-8")
+    assert validate_file(str(p))[0] == 0
+
+
+def test_verified_pois_accepts_the_no_result_sentinel(tmp_path):
+    """A cluster_fallback POI has no geocoder display_name to record — the driver
+    already passes verify.NO_RESOLVED_NAME on that path
+    (scripts/source_verify_run.py:184). The artifact must be able to say "the
+    lookup ran and found none", because otherwise it is indistinguishable from
+    "nobody looked" and the whole cluster_fallback population sits permanently on
+    verdicts_rederivable with no data fix available."""
+    from scripts.validate_artifact import validate_file
+    p = tmp_path / "verified-pois.yaml"
+    p.write_text(
+        "pois:\n"
+        "  - id: p1\n"
+        "    name_local: 山寨燒烤\n"
+        "    name_display: 山寨燒烤\n"
+        "    category: food\n"
+        "    district: 嘉義市西區\n"
+        "    verify_status: unverified\n"
+        "    resolved_name: NO_RESULT\n"
+        "    status_reason: cluster_fallback centroid with no existence proof\n"
+        "    sources:\n"
+        "      - {url: 'https://a.example.tw/p', lang: zh}\n"
+        "      - {url: 'https://b.example.com/q', lang: en}\n",
+        encoding="utf-8")
+    assert validate_file(str(p))[0] == 0
+
+
+def test_accommodations_accepts_both_business_status_forms(tmp_path):
+    """Back-compat is the point of the oneOf: every accommodations.yaml on disk
+    predates the field, and the object form must be addable without invalidating
+    them."""
+    from scripts.validate_artifact import validate_file
+    head = ("stops:\n"
+            "  - district: 嘉義市西區\n"
+            "    nights: 2\n"
+            "    chosen: h1\n"
+            "    candidates:\n"
+            "      - id: h1\n"
+            "        name_local: 示品酒店嘉義\n"
+            "        name_display: 示品酒店嘉義\n"
+            "        facilities: []\n"
+            "        geocode: {lat: 23.48, lng: 120.44}\n"
+            "        verify_status: verified\n"
+            "        sources:\n"
+            "          - {url: 'https://a.example.tw/p', lang: zh}\n"
+            "          - {url: 'https://b.example.com/q', lang: en}\n")
+    for tail in ("        business_status: OPERATIONAL\n",
+                 "        business_status:\n"
+                 "          status: OPERATIONAL\n"
+                 "          source_url: 'https://a.example.tw/p'\n"
+                 "          as_of: '2026-08-05'\n"):
+        p = tmp_path / "accommodations.yaml"
+        p.write_text(head + tail, encoding="utf-8")
+        assert validate_file(str(p))[0] == 0, tail

@@ -10,7 +10,7 @@ Add tripwork to the `plugin` array in your `opencode.json` (global or project-le
 
 ```json
 {
-  "plugin": ["tripwork@git+https://github.com/helping-ai-workflow/tripwork.git"]
+  "plugin": ["tripwork@git+https://github.com/oxydavid-maxx/travelwork.git"]
 }
 ```
 
