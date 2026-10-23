@@ -4,6 +4,8 @@ Every stage SKILL's "validate against the schema" step runs this instead of
 improvising jsonschema glue. Exit codes: 0 pass / 1 schema fail / 2 usage error
 (missing file, YAML parse error, unmapped basename without --schema).
 """
+if __name__ == "__main__":
+    raise SystemExit("moved in tripwork 2.0: python <plugin>/scripts/tripwork.py validate <slug> [artifact]")
 import argparse
 import json
 import pathlib
@@ -19,6 +21,7 @@ SCHEMA_BY_BASENAME = {
     "candidates.yaml": "candidates.schema.json",
     "verified-pois.yaml": "verified-pois.schema.json",
     "verified-pois-media.yaml": "verified-pois-media.schema.json",
+    "day-maps.yaml": "day-maps.schema.json",
     "routing.yaml": "routing.schema.json",
     "accommodations.yaml": "accommodations.schema.json",
     "legs.yaml": "legs.schema.json",
@@ -64,7 +67,7 @@ def validate_file(artifact_path, schema_path=None):
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("artifact", help="path to a trips/<slug>/*.yaml artifact")
+    ap.add_argument("artifact", help="path to a trips/<slug>/data/*.yaml artifact")
     ap.add_argument("--schema", default=None, help="explicit schema path override")
     args = ap.parse_args(argv)
     code, msgs = validate_file(args.artifact, args.schema)
@@ -72,7 +75,3 @@ def main(argv):
     for m in msgs:
         print(m, file=stream)
     return code
-
-
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))

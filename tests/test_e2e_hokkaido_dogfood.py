@@ -1,21 +1,23 @@
+from bs4 import BeautifulSoup
 from urllib.parse import unquote
 from scripts.verify import normalize_and_validate_poi
 from scripts.gate import run_gate
 from scripts.export_gate import run_export_gate, run_html_gate
 from scripts.render.html_page import render_html_page
 from scripts.render.gmaps_links import maps_url
+from tests.mech_fixtures import rederive_kwargs, upgrade_to_v1
 
 def _q(u):
     return unquote(u.split("query=", 1)[1])
 
 def test_d1_lon_normalised_and_name_search():
-    poi = {"id": "lv", "name_local": "ザ・レイクビュー TOYA 乃の風", "name_display": "乃の風",
-           "name_zh": "乃之風度假村", "district": "洞爺湖温泉",
+    poi = {"id": "lv", "name_local": "ザ・レイクビュー TOYA 示の風", "name_display": "示の風",
+           "name_zh": "示之風度假村", "district": "洞爺湖温泉",
            "geocode": {"lat": 42.55, "lon": 140.78, "geocode_source": "cluster_fallback"}}
     out, reason = normalize_and_validate_poi(poi)
     assert reason is None
     assert out["geocode"]["lng"] == 140.78 and "lon" not in out["geocode"]
-    assert _q(maps_url(out)) == "ザ・レイクビュー TOYA 乃の風 洞爺湖温泉"  # name search, not coords/town
+    assert _q(maps_url(out)) == "ザ・レイクビュー TOYA 示の風 洞爺湖温泉"  # name search, not coords/town
 
 def test_d1_town_name_rejected():
     poi = {"id": "bad", "name_local": "洞爺湖温泉", "district": "洞爺湖温泉",
@@ -52,9 +54,11 @@ def test_d4_html_export_round_trips_gate():
 
 
 def test_d5_grid_layout_e2e():
-    """G1/G3/G4/G5 closure: one day exercising the grid, the in-cell .altbox 備案
-    (with NO thumbnail even though its poi has a photo), the look-ahead dashed grouping,
-    and the boxed lodging line — and the whole page still round-trips run_html_gate."""
+    """G1/G3/G4/G5 closure, carried into the v1.0 reader: the pre-v1.0 grid, dashed
+    grouping and boxed lodging line are retired with that layout (spec §6.3). What
+    the closure protected still holds: the stop shows its embedded photo exactly
+    once, the lodging is the day's anchor with a navigation button, and the page
+    round-trips run_html_gate."""
     import re
     photo = {"data": "data:image/jpeg;base64,/9j/FULL",
              "thumb": {"data": "data:image/jpeg;base64,/9j/TH"}}
@@ -62,56 +66,37 @@ def test_d5_grid_layout_e2e():
     visit = {"id": "v", "name_display": "五稜郭", "name_zh": "五稜郭",
              "geocode": {"lat": 41.79, "lng": 140.75}, "photo": photo,
              "photo_attribution": attr, "photo_source": "wikimedia"}
-    lodge = {"id": "lo", "name_display": "乃の風", "name_zh": "乃之風",
+    lodge = {"id": "lo", "name_display": "示の風", "name_zh": "示之風",
              "geocode": {"lat": 42.55, "lng": 140.78}, "photo": photo,
              "photo_attribution": attr, "photo_source": "wikimedia"}
     pmap = {"v": visit, "lo": lodge}
     itin = {"title": "北海道", "days": [{
         "date": "2026-07-01", "label": "D1｜函館", "lodging": "lo",
         "rows": [
-            {"slot": "move", "text": "機場 → 函館"},
+            {"slot": "move", "mode": "taxi", "mins": 20, "km": 8, "text": "機場 → 函館"},
             {"time": "10:00", "slot": "visit", "poi_id": "v", "text": "五稜郭塔"},
-            {"slot": "activity", "poi_id": "v", "text": "▸ 備案｜強風改五稜郭夜景"},
-            {"slot": "meal", "text": "晚餐｜海鮮"},
+            {"slot": "move", "mode": "walk", "mins": 10, "km": 0.6},
         ]}]}
     html = render_html_page(itin, pmap)
-
-    # G1 grid + no emoji column
-    assert "grid-template-columns:48px 1fr 64px" in html
-    assert 'class="emo"' not in html
-    # G5 boxed lodging + right-aligned lodge thumb
-    assert "background:#f0f9fb" in html
-    lodge_seg = html.split('class="lodge"', 1)[1].split("</div>", 1)[0]
-    assert 'class="thumb"' in lodge_seg
-    # G3 in-cell altbox 備案 with empty thumb cell and NO <img> in that <li>
-    alt_li = re.search(r'<li class="altrow[^"]*">.*?</li>', html, re.S).group(0)
-    assert '<span class="bd"><span class="altbox">' in alt_li
-    assert alt_li.endswith('<span class="thcol"></span></li>')
-    assert "<img" not in alt_li               # alt row never gets a thumbnail
-    # G4 dashed grouping over [move, visit, alt, meal]
-    classes = re.findall(r'<li class="([^"]*)">', html)
-    assert "dashed" in classes[0]             # move→visit  (real→real)
-    assert "dashed" not in classes[1]         # visit→alt   (real→alt)
-    assert "dashed" in classes[2]             # alt→meal    (alt→real)
-    assert "dashed" not in classes[3]         # meal→last
-    # whole page still passes the export gate
+    assert html.count("data:image/jpeg;base64,/9j/FULL") == 1 and html.count('class="bpi ') == 1
+    assert "回到 示之風" in html and 'class="anchor"' in html
     assert run_html_gate(html, list(pmap.values()), min_days=1)["status"] == "pass"
 
 
 def test_d6_jargon_gate_e2e():
     """G6 closure: a deliverable carrying ALL the confirmed Hokkaido internal-jargon
-    leaks ((hak-goryokaku), (lodge-toya-nonokaze), (sap-keio-plaza), must_do) is rejected
+    leaks ((hak-goryokaku), (lodge-toya-hotel), (sap-keio-plaza), must_do) is rejected
     by BOTH the markdown and HTML gates via no_internal_jargon; a clean one passes both."""
     from scripts.render.markdown import render_day_table
 
     def _jargon_passed(rep):
         return next(c["passed"] for c in rep["checks"] if c["name"] == "no_internal_jargon")
 
-    pois = [{"id": "hak-goryokaku"}, {"id": "lodge-toya-nonokaze"}, {"id": "sap-keio-plaza"}]
-    leaks = ("hak-goryokaku", "lodge-toya-nonokaze", "sap-keio-plaza", "must_do")
+    pois = [{"id": "hak-goryokaku"}, {"id": "lodge-toya-hotel"}, {"id": "sap-keio-plaza"}]
+    leaks = ("hak-goryokaku", "lodge-toya-hotel", "sap-keio-plaza", "must_do")
     dirty_day = {"label": "D1｜函館", "rows": [
         {"slot": "visit", "text": "改五稜郭タワー（五稜郭塔）(hak-goryokaku) 展望夜景"},
-        {"slot": "lodging", "text": "投宿 乃の風（乃之風）(lodge-toya-nonokaze)"},
+        {"slot": "lodging", "text": "投宿 示の風（示之風）(lodge-toya-hotel)"},
         {"slot": "meal", "text": "蟹会席（螃蟹會席）must_do"},
         {"slot": "visit", "text": "京王廣場(sap-keio-plaza)"},
     ]}
@@ -137,13 +122,25 @@ def test_d6_jargon_gate_e2e():
 
 def test_d8_canonical_hygiene_protects_all_renderers_e2e():
     """0.20.0: content hygiene (jargon + kana-gloss) now runs at the CANONICAL gate
-    (run_gate), so a leak is blocked BEFORE any renderer runs — line-short.txt (which has
-    no gate of its own) is clean by construction. A dirty canonical itinerary fails
-    run_gate on both checks; the cleaned one passes and line_short renders clean."""
-    from scripts.gate import run_gate
-    from scripts.render.line_short import render_line_short
+    (run_gate), so a leak is blocked BEFORE any renderer runs. A dirty canonical
+    itinerary fails run_gate on both checks; the cleaned one passes. (Its line-short
+    half went with the LINE text, retired in v1.1.)"""
+    import datetime
 
-    pois = [{"id": "hak-goryokaku", "verify_status": "verified", "geocode": {"lat": 41.8, "lng": 140.7}}]
+    from scripts.gate import run_gate
+
+    pois = [{"id": "hak-goryokaku", "verify_status": "verified",
+            "geocode": {"lat": 41.8, "lng": 140.7, "geocode_source": "nominatim"},
+            "resolved_name": "NO_RESULT",
+            # sourced business_status (TW-070, v0.34.0): run_gate now threads
+            # `pois` into rederive_pois, so this record must re-derive its own
+            # recorded 'verified' for `rc` (the clean/pass branch) below. as_of
+            # computed at call time, never a literal.
+            "business_status": {"status": "OPERATIONAL",
+                                "source_url": "https://source.example/hak-goryokaku",
+                                "as_of": datetime.date.today().isoformat()},
+            "sources": [{"url": "https://a.example/hak-goryokaku", "lang": "zh"},
+                        {"url": "https://b.example/hak-goryokaku", "lang": "en"}]}]
     dirty = {"title": "北海道", "days": [{"date": "2026-07-01", "label": "D1", "rows": [
         {"slot": "meal", "poi_id": "hak-goryokaku", "text": "午餐(hak-goryokaku) must_do"},   # jargon
         {"slot": "visit", "poi_id": "hak-goryokaku", "text": "スタバ 喝咖啡"},                  # ungloss kana (paren-free line)
@@ -157,10 +154,9 @@ def test_d8_canonical_hygiene_protects_all_renderers_e2e():
         {"slot": "meal", "poi_id": "hak-goryokaku", "text": "午餐"},
         {"slot": "visit", "poi_id": "hak-goryokaku", "text": "夜景 スターバックス（星巴克）"},
     ]}]}
-    rc = run_gate(pois, clean, advisory={"items": []})
+    upgrade_to_v1(pois, clean)     # v1.0 reader data: chain, theme, source records
+    rc = run_gate(pois, clean, advisory={"items": []}, **rederive_kwargs())
     assert rc["status"] == "pass", rc["failures"]
-    line = render_line_short(clean)
-    assert "(hak-goryokaku)" not in line and "must_do" not in line   # line-short clean by construction
 
 
 def test_d7_move_directions_e2e():
@@ -172,17 +168,21 @@ def test_d7_move_directions_e2e():
     poi = {"id": "v", "name_display": "五稜郭", "name_zh": "五稜郭", "name_local": "五稜郭",
            "geocode": {"lat": 41.79, "lng": 140.75}}
     day = {"date": "2026-07-01", "label": "D1｜函館", "rows": [
-        {"slot": "move", "text": "午後抵達", "from": "函館空港", "to": "函館駅"},
+        {"slot": "move", "mode": "rail", "mins": 20, "km": 7, "text": "午後抵達",
+         "from": "函館空港", "to": "函館駅"},
         {"time": "10:00", "slot": "visit", "poi_id": "v", "text": "五稜郭塔"},
-        {"slot": "move", "text": "步行接駁"},                 # no from/to → fallback
+        {"slot": "move", "mode": "walk", "mins": 10, "text": "步行接駁"},   # no from/to → fallback
     ]}
     pmap = {"v": poi}
 
+    # v1.0 reader (spec §6.3): a move row is mode + minutes; navigation lives on each
+    # stop's 導航 button, so the HTML carries no A→B directions chip any more.
     html = render_html_page({"title": "北海道", "days": [day]}, pmap)
-    assert '<span class="bd"><a href="https://www.google.com/maps/dir/' in html   # dir chip leads
-    assert "🚆 函館空港→函館駅" in html
-    assert "travelmode" not in html
-    assert "🚆 步行接駁" in html                              # fallback: emoji prefix, no link
+    assert "從 函館空港 出發" in html and "travelmode" not in html
+    # v1.1 (user): a 移動列 is mode + minutes + distance; its note is not shown
+    legs = [l.get_text(" ", strip=True) for l in BeautifulSoup(html, "html.parser").select(".leg")]
+    assert legs[0].startswith("電車 20 分") and "7 km" in legs[0] and legs[1].startswith("步行 10 分")
+    assert "午後抵達" not in html and "步行接駁" not in html
     assert run_html_gate(html, list(pmap.values()), min_days=1)["status"] == "pass"
 
     md = render_day_table(day, pmap)

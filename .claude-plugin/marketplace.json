@@ -9,7 +9,7 @@
     {
       "name": "tripwork",
       "description": "Staged travel-planning pipeline with multi-source verification and geocoded routing audit",
-      "version": "0.30.2",
+      "version": "3.0.2",
       "source": "./",
       "homepage": "https://github.com/oxydavid-maxx/travelwork",
       "author": {

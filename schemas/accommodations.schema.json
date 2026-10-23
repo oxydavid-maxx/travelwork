@@ -22,6 +22,10 @@
           "nights": {
             "type": "integer"
           },
+          "area_label": {
+            "type": "string",
+            "description": "2–4 字的地區短名，紀念章月曆用（v1.0 §4.6）。Optional in schema; required by the itinerary gate."
+          },
           "chosen": {
             "type": [
               "string",
@@ -47,6 +51,15 @@
                 },
                 "name_local": {
                   "type": "string"
+                },
+                "address_local": {
+                  "type": "string",
+                  "description": "Street address in the local language as the venue's official source writes it (building and floor allowed), for a taxi driver; shown under the local name with a big-print 給司機看 sheet. Never from Google Places (its terms forbid storing formattedAddress)."
+                },
+                "address_source": {
+                  "type": "string",
+                  "pattern": "^https?://",
+                  "description": "URL of the official source the address_local was read from."
                 },
                 "name_display": {
                   "type": "string"
@@ -97,6 +110,10 @@
                 "gmaps": {
                   "type": "string"
                 },
+                "gmaps_place_id": {
+                  "type": "string",
+                  "description": "Google Maps place_id, recorded by accommodation-research when a Places API lookup confirms the lodging is open; maps_url appends &query_place_id so the link opens the exact place (D9)."
+                },
                 "reception": {
                   "type": "object",
                   "properties": {
@@ -130,6 +147,9 @@
                       "enum": [
                         "nominatim",
                         "nominatim_structured",
+                        "nominatim_address",
+                        "nominatim_road",
+                        "village_centroid",
                         "cluster_fallback"
                       ]
                     }
@@ -174,6 +194,16 @@
                       },
                       "note": {
                         "type": "string"
+                      },
+                      "site": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "中文網站名 (v1.0 §4.2). Optional in schema; required by the itinerary gate for every referenced POI."
+                      },
+                      "site_local": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Original-language site name; required by the gate when lang is not zh*."
                       }
                     },
                     "additionalProperties": false
@@ -189,6 +219,36 @@
                 },
                 "conflict_note": {
                   "type": "string"
+                },
+                "business_status": {
+                  "description": "Operating signal. The object form is the one Gate 0 accepts: {status, source_url, as_of}. The bare string is retained for one version so existing trips keep passing validate_artifact — it is treated as SELF-ATTESTED and yields `unverified`, which routes back to accommodation-research with a fixable message rather than failing validation outright. Copied verbatim from verified-pois.schema.json so the two schemas cannot disagree in detail. (TW-072 — the same object form also satisfies Gate 2c's existence proof, which is why Gate 2c retires as unreachable once lodging carries this field too.)",
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "enum": ["OPERATIONAL", "CLOSED_TEMPORARILY", "CLOSED_PERMANENTLY"]
+                    },
+                    {
+                      "type": "object",
+                      "required": ["status", "source_url", "as_of"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": ["OPERATIONAL", "CLOSED_TEMPORARILY", "CLOSED_PERMANENTLY"]
+                        },
+                        "source_url": {
+                          "type": "string",
+                          "pattern": "^(https?://[^\\s]+|tel:[+0-9][0-9()\\-. ]{5,})$",
+                          "description": "The Places API endpoint, the dated page, or `tel:<number>` for a phone confirmation. `tel:` is admitted deliberately: it is the only route available to a consumer without a Places API key, and rejecting it would make this fix name an unobtainable source — the exact defect TW-063 closes. End-anchored (I4): the prior pattern had no `$`, so `tel:` alone or `https://` alone satisfied it — this is Gate 0's sole auditability carrier, so a pattern four junk characters can pass is not a minor gap."
+                        },
+                        "as_of": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+                      }
+                    }
+                  ]
+                },
+                "resolved_name": {
+                  "type": "string",
+                  "description": "The display_name the geocoder returned for this hotel, recorded so Gate 2b (name match) can be re-derived from the artifact. Optional in schema for back-compat; required by the itinerary gate. Without it a wrong-but-plausible top hit is indistinguishable from a correct one."
                 }
               },
               "additionalProperties": false,

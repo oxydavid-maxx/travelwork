@@ -2,7 +2,7 @@
 
 F1 (P7-twin): export-gate `retryable` — a data defect (missing attribution / no official
               source) that re-rendering cannot fix is non-retryable, so the orchestrator
-              halts and asks instead of looping export-artifact forever.
+              halts and asks instead of looping tripwork-export-artifact forever.
 F2 (P6-twin): pass_break_even head-count scaling.
 (F3 is a source-verify SKILL contract change — capture gmaps_place_id during the P1 Google
  business_status check — no code behaviour, so no unit test.)
@@ -11,6 +11,7 @@ RED-first: new params/keys exercised so each reports its own RED.
 """
 from scripts.export_gate import run_export_gate, run_html_gate
 from scripts.cost import pass_break_even
+from tests.mech_fixtures import HTML_DELIVERABLE
 
 
 # ============================ F1 — retryable flag ============================
@@ -54,13 +55,13 @@ class TestF1Retryable:
         assert r["retryable"] is True   # a render fix is still available this round
 
     def test_html_attribution_failure_non_retryable(self):
-        r = run_html_gate('<div class="day-card"></div>', [self._photo_noattr()], min_days=1)
+        r = run_html_gate(HTML_DELIVERABLE, [self._photo_noattr()], min_days=1)
         assert r["status"] == "fail"
         assert r["retryable"] is False
 
     def test_html_render_defect_retryable(self):
         # raw <script> is a render defect
-        r = run_html_gate('<div class="day-card"></div><script>x</script>', [], min_days=1)
+        r = run_html_gate(HTML_DELIVERABLE + '<script>x</script>', [], min_days=1)
         assert r["status"] == "fail"
         assert r["retryable"] is True
 

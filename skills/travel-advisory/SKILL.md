@@ -9,7 +9,7 @@ Regulations can harm travellers if wrong, so the **Source-Verified-First** rule 
 
 ## Method
 
-- Use the consumer harness `WebSearch`; prefer local-language official sources.
+- Research using the **source ladder** in `tripwork:using-tripwork` (WebSearch, else WebFetch against an official page, else a search HTML endpoint for discovery only); prefer local-language official sources.
 - Each item needs >= 1 **official** source (airline notice, government entry portal) plus a corroborating source.
 - Record `effective_date` for every rule (regulations change — e.g. battery rules with staged effective dates).
 - If the travel date precedes a rule's `effective_date`, set `not_yet_in_effect: true`.
@@ -17,22 +17,26 @@ Regulations can harm travellers if wrong, so the **Source-Verified-First** rule 
 
 ## Output
 
-Write `trips/<slug>/advisory.yaml` (schema: `schemas/advisory.schema.json`) **only when routed in by the orchestrator (Stage Selection rule 1.5, or the rule 11 staleness re-check)**. In that pipeline mode, then validate it:
-`python scripts/validate_artifact.py trips/<slug>/advisory.yaml`
+Write `trips/<slug>/data/advisory.yaml` (schema: `schemas/advisory.schema.json`) **only when routed in by the orchestrator (Stage Selection rule 1.5, or the rule 11 staleness re-check)**. In that pipeline mode, then validate it:
+`python <plugin>/scripts/tripwork.py validate <slug> advisory`
 (exit 0 required before returning). Any `restricted`/`banned` item -> surface prominently and feed it into the synthesis checklist. Stop and require user acknowledgement for `banned` items.
 
-**Standalone mode (ad-hoc regulation question).** When invoked directly (not via the orchestrator), do **NOT** write `trips/<slug>/advisory.yaml` — that file is the pipeline artifact, and writing it out of band lets the orchestrator's rule 11 treat the stage as already done and skip the real gate. Answer inline, or write `work/<slug>/advisory-adhoc.yaml` instead.
+Record `input_fingerprints: {"trip-brief.yaml": <fp>}` where `<fp>` is the stdout of
+`python <plugin>/scripts/tripwork.py fingerprint <slug> advisory`. Without it, rule 11 falls back to comparing file
+timestamps and re-runs this stage after any unrelated edit to the brief.
 
-Return to `tripwork:orchestrator`.
+**Standalone mode (ad-hoc regulation question).** When invoked directly (not via the orchestrator), do **NOT** write `trips/<slug>/data/advisory.yaml` — that file is the pipeline artifact, and writing it out of band lets the orchestrator's rule 11 treat the stage as already done and skip the real gate. Answer inline, or write `work/<slug>/advisory-adhoc.yaml` instead.
+
+Return to `tripwork:tripwork-orchestrator`.
 
 ## Stage Contract
 
 | Field | Value |
 |---|---|
-| Input | `trips/<slug>/trip-brief.yaml` (destination, airline, dates). Standalone use also allowed. |
-| Output | `trips/<slug>/advisory.yaml` (rules with `effective_date` + `risk`). |
-| Stop condition | A `banned` item exists → require explicit user acknowledgement. |
-| Next stage | `tripwork:orchestrator`. |
+| Input | `trips/<slug>/data/trip-brief.yaml` (destination, airline, dates). Standalone use also allowed. |
+| Output | `trips/<slug>/data/advisory.yaml` (rules with `effective_date` + `risk`). |
+| Stop condition | A `banned` item exists (`banned_item`) → require explicit user acknowledgement. |
+| Next stage | `tripwork:tripwork-orchestrator`. |
 
 ## Red Flags
 

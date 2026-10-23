@@ -4,7 +4,10 @@ A single itinerary that violates four iron rules at once must make run_gate fail
 EVERY corresponding check — proving the per-defect unit fixes also hold under
 cross-defect interaction. 2026-06-12 is a Friday.
 """
+import datetime
+
 from scripts.gate import run_gate
+from tests.mech_fixtures import rederive_kwargs, upgrade_to_v1
 
 POIS = [
     {"id": "verified_meal", "verify_status": "verified", "geocode": {"lat": 37.5, "lng": 127.0}},
@@ -49,10 +52,26 @@ def test_wave1_gate_closes_all_four_defects():
 
 
 def test_wave1_clean_itinerary_passes_every_check():
-    pois = [{"id": "m", "verify_status": "verified", "geocode": {"lat": 37.5, "lng": 127.0}}]
+    pois = [{"id": "m", "verify_status": "verified",
+            "geocode": {"lat": 37.5, "lng": 127.0, "geocode_source": "nominatim"},
+            "resolved_name": "NO_RESULT",
+            # sourced business_status (TW-070, v0.34.0): run_gate now threads
+            # `pois` into rederive_pois, so "m" must re-derive its own recorded
+            # 'verified'. as_of computed at call time, never a literal.
+            "business_status": {"status": "OPERATIONAL",
+                                "source_url": "https://source.example/m",
+                                "as_of": datetime.date.today().isoformat()},
+            "sources": [{"url": "https://a.example/m", "lang": "zh"},
+                        {"url": "https://b.example/m", "lang": "en"}],
+            # v0.33.0 (R4): explicit hours so the row's closing_status is re-derivable.
+            "hours": {"close": "22:00", "last_order": "21:30", "typical_visit_mins": 60,
+                      "as_of": "2026-01-01"}}]
     itin = {"title": "ok", "checklist": ["spare lithium battery: carry-on only"],
             "days": [{"date": "2026-06-12", "label": "Day 1",
-                      "rows": [{"time": "12:00", "slot": "meal", "poi_id": "m", "text": "lunch"}]}]}
-    r = run_gate(pois, itin, calendar=CALENDAR, advisory=ADVISORY, must_do=["m"])
+                      "rows": [{"time": "12:00", "slot": "meal", "poi_id": "m", "text": "lunch",
+                                "closing_status": "ok"}]}]}
+    upgrade_to_v1(pois, itin)      # v1.0 reader data: chain, theme, source records
+    r = run_gate(pois, itin, calendar=CALENDAR, advisory=ADVISORY, must_do=["m"],
+                 **rederive_kwargs())
     assert r["status"] == "pass", r["failures"]
     assert all(c["passed"] for c in r["checks"])

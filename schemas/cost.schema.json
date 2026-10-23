@@ -36,6 +36,10 @@
           },
           "fx_rate": {
             "type": "number"
+          },
+          "poi_id": {
+            "type": "string",
+            "description": "Lodging line items: the stop's chosen lodging id (accommodations stops[].chosen), so the reader's 旅程與費用 card can show each stay's cost (v1.1 topic 6)."
           }
         },
         "additionalProperties": false
@@ -43,6 +47,11 @@
     },
     "total": {
       "type": "number"
+    },
+    "by_category": {
+      "type": "object",
+      "additionalProperties": {"type": "number"},
+      "description": "Per-category subtotals as returned by scripts/cost.py::sum_costs. Optional: `total` is the load-bearing verdict and is always re-derived, so this is a strictly-additional cross-check that only runs when present."
     },
     "budget": {
       "type": "object",

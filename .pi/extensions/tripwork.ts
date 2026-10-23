@@ -10,6 +10,7 @@ const extensionDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(extensionDir, "../..");
 const skillsDir = resolve(packageRoot, "skills");
 const bootstrapSkillPath = resolve(skillsDir, "using-tripwork", "SKILL.md");
+const tripworkPy = resolve(packageRoot, "scripts", "tripwork.py");
 
 let cachedBootstrap: string | null | undefined;
 
@@ -58,6 +59,8 @@ ${BOOTSTRAP_MARKER}
 
 You have tripwork.
 
+tripwork scripts: python "${tripworkPy}" <command> <slug>  (run from the workspace root)
+
 The using-tripwork skill content is included below and is already loaded for this Pi session. Follow it now. Do not try to load using-tripwork again.
 
 ${body}
@@ -79,11 +82,11 @@ function stripFrontmatter(content: string): string {
 function piToolMapping(): string {
 	return `## Pi tool mapping
 
-Pi has native skills but does not expose Claude Code's \`Skill\` tool. When a tripwork instruction says to invoke a skill, load the relevant \`SKILL.md\` with \`read\` (always enter tripwork:using-tripwork first, then let tripwork:orchestrator pick the stage), or let a human invoke \`/skill:name\`.
+Pi has native skills but does not expose Claude Code's \`Skill\` tool. When a tripwork instruction says to invoke a skill, load the relevant \`SKILL.md\` with \`read\` (always enter tripwork:using-tripwork first, then let tripwork:tripwork-orchestrator pick the stage), or let a human invoke \`/skill:name\`. In Pi, the skill named \`tripwork:<skill>\` in tripwork's docs is the Pi skill \`<skill>\` (drop the \`tripwork:\` prefix), e.g. \`tripwork:tripwork-orchestrator\` is \`/skill:tripwork-orchestrator\`.
 
 Pi's built-in coding tools are lowercase: \`read\`, \`write\`, \`edit\`, \`bash\`, plus optional \`grep\`, \`find\`, \`ls\`. Use those for read/create/edit/run/search/find/list actions.
 
-When a tripwork skill says to use the consumer-harness \`WebSearch\`, use Pi's web-search tool if one is installed; if none exists, HALT the stage and tell the user (Source-Verified-First: "No search, no fact") — never substitute model memory.
+When a tripwork skill says to use the consumer-harness \`WebSearch\`, use Pi's web-search tool if one is installed (source ladder rung 1). When a tripwork skill says to use the consumer-harness \`WebFetch\`, use whatever URL-fetch capability Pi exposes (rungs 2/3: an official page, else a search engine's HTML endpoint for discovery only). HALT the stage and tell the user only when every rung of the source ladder is unavailable (Source-Verified-First: "No unsourced fact") — model recall is never a source.
 
 Pi does not ship a standard subagent or task-list tool. If \`subagent\` (from \`pi-subagents\`) or a todo tool is installed, use it; otherwise work in this session or track tasks in a plan / \`TODO.md\`.`;
 }

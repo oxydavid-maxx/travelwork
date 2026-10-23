@@ -20,10 +20,21 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "not": {"enum": ["home-origin", "home-return"]},
+            "description": "home-origin / home-return are the map's home points (scripts/render/reader/maps.py::HOME_IDS)."
           },
           "name_local": {
             "type": "string"
+          },
+          "address_local": {
+            "type": "string",
+            "description": "Street address in the local language as the venue's official source writes it (building and floor allowed), for a taxi driver; shown under the local name with a big-print 給司機看 sheet. Never from Google Places (its terms forbid storing formattedAddress)."
+          },
+          "address_source": {
+            "type": "string",
+            "pattern": "^https?://",
+            "description": "URL of the official source the address_local was read from."
           },
           "name_display": {
             "type": "string",
@@ -67,12 +78,27 @@
                 "enum": [
                   "nominatim",
                   "nominatim_structured",
+                  "nominatim_address",
+                  "nominatim_road",
+                  "village_centroid",
                   "cluster_fallback"
-                ]
+                ],
+                "description": "Where this coordinate came from. nominatim_address: an approximate point from the venue's sourced street address (address_local) -- the 丁目 or town it lies in -- used when the name lookup missed or landed on a namesake. Optional in schema (old verified-pois.yaml stays valid); required by source-verify's Gate 2. An absent value is a refusal, not a skip: verify_poi cannot tell 'nobody recorded where this coordinate came from' apart from 'this coordinate is a district centroid', so it returns unverified. Recording provenance is its own requirement, independent of any further check on the value. (I3) Note a recorded 'cluster_fallback' now proceeds like any other value — the extra existence-proof check that used to be demanded of it (TW-062's sub-check) is retired, subsumed by Gate 0 once a sourced business_status became an existence proof in its own right (TW-072)."
               },
               "pin_exact": {
                 "type": "boolean",
                 "description": "When true, gmaps_links pins exact coords instead of name search. Reserve for precise venues with a known name collision. (dogfood D1)"
+              },
+              "query": {
+                "type": "object",
+                "description": "The strings this coordinate was looked up with (source_verify_run.py). A re-run keeps a verified POI's coordinate while these are unchanged instead of asking Nominatim again (TW-097); --regeocode forces a fresh lookup.",
+                "properties": {
+                  "name": {"type": "string"},
+                  "district": {"type": "string"},
+                  "name_roman": {"type": "string"},
+                  "address": {"type": "string"}
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -99,6 +125,16 @@
                 },
                 "official": {
                   "type": "boolean"
+                },
+                "site": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "中文網站名 (v1.0 §4.2). Optional in schema; required by the itinerary gate for every referenced POI."
+                },
+                "site_local": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Original-language site name; required by the gate when lang is not zh*."
                 }
               },
               "additionalProperties": false
@@ -139,12 +175,15 @@
                 }
               ]
             },
-            "description": "Canonical lowercase weekday names, ISO dates, or 'public_holiday'. Matched by scripts/calendar.py::poi_closed_on."
+            "description": "Canonical lowercase weekday names, ISO dates, or 'public_holiday'. Matched by scripts/trip_calendar.py::poi_closed_on."
           },
           "hours": {
             "type": "object",
-            "description": "Intra-day closing window, consumed by scripts/hours.py::closing_status.",
+            "description": "Intra-day closing window, consumed by scripts/hours.py::closing_status. `open` is the opening time, recorded from the same source as `close`; shown in lists only, never scheduled on.",
             "properties": {
+              "open": {
+                "type": "string"
+              },
               "close": {
                 "type": "string"
               },
@@ -160,6 +199,10 @@
               "as_of": {
                 "type": "string",
                 "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+              },
+              "no_fixed_close": {
+                "type": "boolean",
+                "description": "Sourced claim that this place has no closing time — an open-air beach, lake, park or street. A CLAIM, not an omission: without it a POI with no `close` is indistinguishable from one whose hours were never checked. Recording a fake 23:59 instead would flow into the need_mins arithmetic as if it meant something."
               }
             },
             "additionalProperties": false
@@ -179,22 +222,63 @@
               "lead_time_days": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "opens_at": {
+                "type": "string",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}( [0-9]{2}:[0-9]{2})?$",
+                "description": "When reservations open (v1.0 §4.7); a referenced POI with this set must have a hard-dated 預約 checklist item."
+              },
+              "opens_at_source": {
+                "type": "string",
+                "pattern": "^https?://"
               }
             },
+            "dependencies": {"opens_at": ["opens_at_source"]},
             "additionalProperties": false
           },
           "gmaps_place_id": {
             "type": "string",
             "description": "Google Maps place_id; deep-links maps_url to the canonical place. May be re-emitted by source-verify so it survives re-verify on the canonical row."
           },
+          "rating": {
+            "type": "object",
+            "description": "Optional rating a source states (§11): Google's when the consumer has a key (the plugin never calls Google), else another platform's (Tabelog, 愛食記 ...). Never gates, demotes or conflicts a place; lists sort by it and warn on few reviews. `note`: the agent's reading of collected write-ups when they disagree with a high score.",
+            "required": ["platform", "score", "source_url", "as_of"],
+            "additionalProperties": false,
+            "properties": {
+              "platform": {"type": "string"},
+              "score": {"type": "number"},
+              "count": {"type": "integer"},
+              "source_url": {"type": "string"},
+              "as_of": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+              "note": {"type": "string"}
+            }
+          },
           "business_status": {
-            "type": "string",
-            "enum": [
-              "OPERATIONAL",
-              "CLOSED_TEMPORARILY",
-              "CLOSED_PERMANENTLY"
-            ],
-            "description": "Sourced operating signal (Google Places businessStatus vocabulary). source-verify must obtain it; an absent signal keeps the POI 'unverified' (Gate 0 cannot pass), a CLOSED value forces 'rejected'. Never default to operating. (P1)"
+            "description": "Operating signal. The object form is the one Gate 0 accepts: {status, source_url, as_of}. The bare string is retained for one version so existing trips keep passing validate_artifact — it is treated as SELF-ATTESTED and yields `unverified`, which routes back to source-verify with a fixable message rather than failing validation outright. (TW-063)",
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": ["OPERATIONAL", "CLOSED_TEMPORARILY", "CLOSED_PERMANENTLY"]
+              },
+              {
+                "type": "object",
+                "required": ["status", "source_url", "as_of"],
+                "additionalProperties": false,
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": ["OPERATIONAL", "CLOSED_TEMPORARILY", "CLOSED_PERMANENTLY"]
+                  },
+                  "source_url": {
+                    "type": "string",
+                    "pattern": "^(https?://[^\\s]+|tel:[+0-9][0-9()\\-. ]{5,})$",
+                    "description": "The Places API endpoint, the dated page, or `tel:<number>` for a phone confirmation. `tel:` is admitted deliberately: it is the only route available to a consumer without a Places API key, and rejecting it would make this fix name an unobtainable source — the exact defect TW-063 closes. End-anchored (I4): the prior pattern had no `$`, so `tel:` alone or `https://` alone satisfied it — this is Gate 0's sole auditability carrier, so a pattern four junk characters can pass is not a minor gap."
+                  },
+                  "as_of": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+                }
+              }
+            ]
           },
           "photo": {
             "type": "object",
@@ -290,6 +374,11 @@
             },
             "additionalProperties": false
           },
+          "resolved_name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The display_name the geocoder returned for this POI, recorded so Gate 2b (name match) can be re-derived from the artifact. The literal NO_RESULT means the lookup RAN and returned nothing — a cluster_fallback POI has no display_name to record, and scripts/source_verify_run.py already passes verify.NO_RESOLVED_NAME on that path. An ABSENT field means nobody looked; the two are different and the gate treats them differently. Optional in schema for back-compat; required by the itinerary gate. (TW-071)"
+          },
           "photo_source": {
             "description": "Photo provenance. wikimedia/openverse are distributable; google is marked non-distributable by the export gate. Backend selector names {none,wiki,google} map to sources as: wiki -> {wikimedia, openverse}, google -> google.",
             "enum": [
@@ -297,8 +386,18 @@
               "openverse",
               "google"
             ]
+          },
+          "intro": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Sourced one-paragraph introduction for the reader (v1.0 §4.3). Absent = the reader shows no intro line."
+          },
+          "intro_source": {
+            "type": "string",
+            "pattern": "^https?://"
           }
         },
+        "dependencies": {"intro": ["intro_source"]},
         "allOf": [
           {
             "if": {

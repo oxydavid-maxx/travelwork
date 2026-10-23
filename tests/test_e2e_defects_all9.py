@@ -7,6 +7,7 @@ lodging folded in by P4, the thematic must_do covered by P5, all in one gate run
 also close. Each defect gets a direct assertion; schema validation proves the new
 fields (business_status / rooms / must_do_coverage / distributable) coexist.
 """
+import datetime
 import json
 import pathlib
 
@@ -15,13 +16,18 @@ import pytest
 
 from scripts.verify import verify_poi
 from scripts.geocode import resolve_place
-from scripts.gate import run_gate, chosen_lodging_pois
+from scripts.gate import run_gate, chosen_lodging_pois, poi_pool
 from scripts.cost import lodging_line_amount, sum_costs, over_budget
 from scripts.export_gate import run_export_gate, run_html_gate
 from scripts.render.gmaps_links import maps_url
 from scripts.render.html_page import render_html_page
+from tests.mech_fixtures import rederive_kwargs, upgrade_to_v1
 
 SCHEMAS = pathlib.Path(__file__).resolve().parent.parent / "schemas"
+
+# Reference "today" for sourced business_status.as_of recency (TW-063). Fixed
+# so this fixture doesn't rot as the wall clock advances past the 90-day window.
+TODAY = datetime.date(2026, 7, 1)
 
 
 def _sources():
@@ -29,28 +35,55 @@ def _sources():
             {"url": "https://b.example", "lang": "zh"}]
 
 
+def _sourced_status(status, as_of="2026-06-15"):
+    return {"status": status, "source_url": "https://places.example/x", "as_of": as_of}
+
+
 # ---- shared raw candidates (destination-research output, pre source-verify) ----
 FERRY = {"id": "ferry", "name_local": "水社碼頭", "name_display": "水社碼頭",
          "name_roman": "Shuishe Pier", "category": "activity", "district": "日月潭",
-         "business_status": "OPERATIONAL", "gmaps_place_id": "ChIJ_ferry",
-         "geocode": {"lat": 23.86, "lng": 120.91}, "sources": _sources()}
+         "business_status": _sourced_status("OPERATIONAL"), "gmaps_place_id": "ChIJ_ferry",
+         "geocode": {"lat": 23.86, "lng": 120.91, "geocode_source": "nominatim"},
+         # resolved_name (TW-070, v0.34.0): the geocoder's display_name, the
+         # same value test_p1/_verified_pois() already pass as verify_poi's
+         # resolved_name ARGUMENT -- rederive_pois reads it off the POI dict
+         # itself (not a call argument), so without it the record is a
+         # genuine verdicts_rederivable gap (Gate 2b not re-derivable).
+         "resolved_name": "水社碼頭, 日月潭, 南投縣",
+         # v0.33.0 (R4): explicit hours, not no_fixed_close -- this fixture schedules
+         # ferry with slot "meal" (a lunch stop), so it should stay re-derivable the
+         # same way a real itinerary row would be, not opt out via the open-air claim.
+         "hours": {"close": "22:00", "last_order": "21:30", "typical_visit_mins": 60,
+                   "as_of": "2026-06-15"},
+         "sources": _sources()}
 STAR_MOON = {"id": "star-moon", "name_local": "星月大地", "name_display": "星月大地",
              "category": "meal", "district": "后里",
-             "business_status": "CLOSED_PERMANENTLY",
+             "business_status": _sourced_status("CLOSED_PERMANENTLY"),
              "geocode": {"lat": 24.3, "lng": 120.7}, "sources": _sources()}
 NO_SIGNAL = {"id": "no-signal", "name_local": "某餐廳", "name_display": "某餐廳",
              "category": "meal", "district": "日月潭",
              "geocode": {"lat": 23.86, "lng": 120.91}, "sources": _sources()}
 RENAMED = {"id": "renamed", "name_local": "星月大地", "name_display": "星月大地",
-           "category": "meal", "district": "后里", "business_status": "OPERATIONAL",
-           "geocode": {"lat": 24.3, "lng": 120.7}, "sources": _sources()}
+           "category": "meal", "district": "后里",
+           "business_status": _sourced_status("OPERATIONAL"),
+           "geocode": {"lat": 24.3, "lng": 120.7, "geocode_source": "nominatim"},
+           "sources": _sources()}
 
+# geocode_source + resolved_name (I2, v0.33.0) + business_status (Task 6,
+# v0.34.0): so rederive_lodging re-derives hotel-lili to the recorded
+# 'verified' instead of flagging it as a verdicts_rederivable /
+# verdicts_rule_current gap -- this fixture predates all three fields.
+# rederive_lodging anchors Gate 0 to the record's own era (not wall-clock),
+# so this file's fixed _sourced_status() literal is safe here too.
 ACCOMMODATIONS = {"stops": [{
     "district": "日月潭", "nights": 2, "chosen": "hotel-lili",
     "candidates": [{
-        "id": "hotel-lili", "name_local": "力麗溫德姆溫泉酒店",
-        "name_display": "力麗溫德姆溫泉酒店", "verify_status": "verified",
-        "facilities": [], "geocode": {"lat": 23.86, "lng": 120.92},
+        "id": "hotel-lili", "name_local": "示麗溫德姆溫泉酒店",
+        "name_display": "示麗溫德姆溫泉酒店", "verify_status": "verified",
+        "facilities": [],
+        "geocode": {"lat": 23.86, "lng": 120.92, "geocode_source": "nominatim"},
+        "resolved_name": "示麗溫德姆溫泉酒店",
+        "business_status": _sourced_status("OPERATIONAL"),
         "cost": {"amount": 3000, "currency": "TWD", "basis": "per_night", "rooms": 2},
         "sources": _sources()}]}]}
 
@@ -61,7 +94,7 @@ def _verified_pois():
     out = []
     # ferry: OPERATIONAL + resolved name matches -> verified
     _, s, _ = verify_poi(FERRY, geocoded=True, in_claimed_region=True,
-                         resolved_name="水社碼頭, 日月潭, 南投縣")
+                         resolved_name="水社碼頭, 日月潭, 南投縣", today=TODAY)
     if s == "verified":
         out.append({**FERRY, "verify_status": "verified"})
     return out
@@ -94,15 +127,16 @@ class TestE2EAllNineDefects:
 
     # ---- P1 ----
     def test_p1_closed_rejected_missing_unverified_operational_verified(self):
-        assert verify_poi(STAR_MOON, geocoded=True, in_claimed_region=True)[1] == "rejected"
+        assert verify_poi(STAR_MOON, geocoded=True, in_claimed_region=True,
+                          today=TODAY)[1] == "rejected"
         assert verify_poi(NO_SIGNAL, geocoded=True, in_claimed_region=True)[1] == "unverified"
         assert verify_poi(FERRY, geocoded=True, in_claimed_region=True,
-                          resolved_name="水社碼頭, 日月潭")[1] == "verified"
+                          resolved_name="水社碼頭, 日月潭", today=TODAY)[1] == "verified"
 
     # ---- P2 ----
     def test_p2_renamed_neighbour_is_conflicting(self):
         _, status, note = verify_poi(RENAMED, geocoded=True, in_claimed_region=True,
-                                     resolved_name="星月驛站, 后里區, 台中市")
+                                     resolved_name="星月驛站, 后里區, 台中市", today=TODAY)
         assert status == "conflicting"
         assert "mismatch" in note.lower()
 
@@ -110,34 +144,40 @@ class TestE2EAllNineDefects:
     def test_p3_landmark_resolves_via_roman_or_bare(self, monkeypatch):
         import scripts.geocode as g
 
-        def fake_structured(name, city=None, country=None, timeout=10):
-            return None  # street-slot misses
+        def fake_structured(name, city=None, country=None, timeout=10, limit=5, details=False):
+            return []  # street-slot misses
 
-        def fake_geocode(query, timeout=10):
+        def fake_geocode(query, timeout=10, countrycodes=None, feature_type=None, limit=5, details=False):
             if query in ("水社碼頭", "Shuishe Pier"):  # bare or roman resolves
-                return g.GeocodeResult(23.86, 120.91, "水社碼頭 result")
-            return None
+                return [g.GeocodeResult(23.86, 120.91, "水社碼頭, 魚池鄉")]
+            return []
 
-        monkeypatch.setattr(g, "geocode_structured", fake_structured)
-        monkeypatch.setattr(g, "geocode", fake_geocode)
+        monkeypatch.setattr(g, "geocode_structured_many", fake_structured)
+        monkeypatch.setattr(g, "geocode_many", fake_geocode)
+        monkeypatch.setattr(g, "geocode_country", lambda country, timeout=10: "tw")   # v1.2.1
         res, _ = resolve_place("水社碼頭", district="日月潭", country="Taiwan",
-                               name_roman="Shuishe Pier")
+                               name_roman="Shuishe Pier", region=(23.85, 120.91, 5.0))
         assert res is not None
 
     # ---- P4 + P5 combined (the cross-defect gate run) ----
     def _itin(self):
         return {"title": "日月潭 3D2N", "days": [
             {"date": "2026-07-01", "label": "D1",
-             "rows": [{"time": "12:00", "slot": "meal", "poi_id": "ferry", "text": "午餐"}],
+             "rows": [{"time": "12:00", "slot": "meal", "poi_id": "ferry", "text": "午餐",
+                       "closing_status": "ok"}],
              "lodging": "hotel-lili"},
             {"date": "2026-07-02", "label": "D2",
-             "rows": [{"time": "12:00", "slot": "meal", "poi_id": "ferry", "text": "午餐"}]},
+             "rows": [{"time": "12:00", "slot": "meal", "poi_id": "ferry", "text": "午餐",
+                       "closing_status": "ok"}]},
         ], "must_do_coverage": {"日月潭遊湖賞景": ["ferry"]}}
 
     def test_p4_p5_gate_passes_with_lodging_and_thematic_must_do(self):
         pois = _verified_pois()             # only ferry survives P1/P2 (P1/P2 closure)
-        r = run_gate(pois, self._itin(), accommodations=ACCOMMODATIONS,
-                     must_do=["日月潭遊湖賞景"], advisory={"items": []})
+        acc = json.loads(json.dumps(ACCOMMODATIONS))   # upgrade a copy; ACCOMMODATIONS is shared
+        pois, itin = upgrade_to_v1(pois, self._itin(), acc)
+        r = run_gate(pois, itin,
+                     must_do=["日月潭遊湖賞景"], advisory={"items": []},
+                     **rederive_kwargs(accommodations=acc))
         assert r["status"] == "pass", r["failures"]
         # P4: chosen lodging resolved from accommodations, not flagged unknown
         assert not any("unknown POI 'hotel-lili'" in f for f in r["failures"])
@@ -151,11 +191,10 @@ class TestE2EAllNineDefects:
     def test_p4_export_html_gate_clean_on_rendered_lodging(self):
         # Matrix step-8 interaction (Family C): folding the chosen lodging into the
         # render pool (P4) must NOT make the export/html gate spuriously flag the new
-        # lodging row. Build poi_map the way export-artifact now does and gate it.
-        poi_map = {p["id"]: p for p in _verified_pois()}
-        poi_map.update({p["id"]: p for p in chosen_lodging_pois(ACCOMMODATIONS)})
+        # lodging row. Build poi_map the way tripwork-export-artifact now does and gate it.
+        poi_map = poi_pool(_verified_pois(), ACCOMMODATIONS)       # TW-091: tripwork-export-artifact's fold
         html = render_html_page(self._itin(), poi_map)
-        assert "力麗溫德姆溫泉酒店" in html               # lodging actually rendered
+        assert "示麗溫德姆溫泉酒店" in html               # lodging actually rendered
         r = run_html_gate(html, pois=list(poi_map.values()), min_days=2)
         assert r["status"] == "pass", r["failures"]
 

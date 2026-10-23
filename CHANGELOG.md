@@ -1,12 +1,1912 @@
 # Changelog
 
-## 0.30.2 — byte-stable Windows registration
+## 3.0.2 — fork sync: upstream 3.0.1 installed from oxydavid-maxx/travelwork
 
-- Force Markdown skill entrypoints to LF so Codex and Claude plugin caches preserve the canonical Git blob bytes on Windows.
+- The fork now carries upstream tripwork 3.0.1 in full (the reader, publish build, sources
+  by site, `tripwork-` skill prefix).
+- Manifests and install docs name `https://github.com/oxydavid-maxx/travelwork`, so the
+  installed marketplace and the plugin registration agree (`tests/test_registration_convergence.py`).
+- `*.md text eol=lf` keeps skill bytes identical on Windows installs.
+- The orchestrator carries the fork's adaptive subagent dispatch table.
 
-## 0.30.1 — canonical fork registration convergence
+Tests: 2225 passed, 2 skipped in CI (the two consumer-workspace checks skip there).
 
-- Bind Codex, Claude, Cursor, Kimi, Gemini, OpenCode, and Pi installation metadata to the maintained `oxydavid-maxx/travelwork` fork.
+## 3.0.1 — two test fixtures stop sharing a coordinate with a consumer trip
+
+### Fixed
+
+- `tests/test_home_points.py` and `tests/test_e2e_v210_closure.py`: a made-up home point in
+  these fixtures matched a value derived from a consumer workspace, so `test_privacy` failed
+  on that machine (CI has no workspace and skips the check). Both fixtures now use another
+  public landmark; nothing the plugin ships changes.
+
+Tests: 2222 passed, 2 skipped in CI (the two consumer-workspace checks skip there); with the consumer workspace, the privacy check passes.
+
+## 3.0.0 — three skills carry a tripwork- prefix, so pi loads every one
+
+### Changed
+
+- **Three skills are renamed** (directory and frontmatter `name`): `orchestrator` →
+  `tripwork-orchestrator`, `export-artifact` → `tripwork-export-artifact`,
+  `workspace-shape-preflight` → `tripwork-workspace-shape-preflight`. In Claude Code they are
+  `tripwork:tripwork-orchestrator` and so on. Every place tripwork names them follows: the
+  session-start pointer, `tripwork.py next` (it prints `tripwork:tripwork-export-artifact` /
+  `tripwork:tripwork-workspace-shape-preflight`), the stage contracts, GEMINI.md, the Kimi and
+  pi descriptors and the README. The other 15 skills keep their names.
+- **The pi bootstrap explains the ids.** A skill named `tripwork:<skill>` in tripwork's docs is
+  the pi skill `<skill>` (`/skill:tripwork-orchestrator`).
+- **New guards** (`tests/test_skill_names_pi.py`): every SKILL.md frontmatter parses as strict
+  YAML and follows pi's naming rules; no tripwork skill name is used by paperwork, chipwork,
+  writing-humanizer or superpowers (a checked-in snapshot of their names,
+  `tests/fixtures/sibling-skill-names.json`, since CI cannot read the private siblings); and no
+  file outside this CHANGELOG names a retired id.
+
+### Fixed
+
+- **pi skipped tripwork's orchestrator, export and preflight skills.** pi has one skill
+  namespace for every package and keeps the first skill it finds under a name; paperwork and
+  chipwork ship skills called `orchestrator`, `export-artifact` and
+  `workspace-shape-preflight`, so in pi whichever plugin was found first answered to those
+  names and the others were dropped with a collision warning. The prefix removes the clash.
+
+### Migration
+
+- Claude Code, Codex, Cursor, Gemini, Kimi, OpenCode and pi pick up the new names on
+  update; trips, `work/` and the stamp `work/.preflight-completed` are untouched.
+- If your own notes, CLAUDE.md or scripts name the old ids, replace them:
+
+  | before | now |
+  |---|---|
+  | `tripwork:orchestrator` | `tripwork:tripwork-orchestrator` |
+  | `tripwork:export-artifact` | `tripwork:tripwork-export-artifact` |
+  | `tripwork:workspace-shape-preflight` | `tripwork:tripwork-workspace-shape-preflight` |
+  | `skills/orchestrator/` | `skills/tripwork-orchestrator/` |
+  | `skills/export-artifact/` | `skills/tripwork-export-artifact/` |
+  | `skills/workspace-shape-preflight/` | `skills/tripwork-workspace-shape-preflight/` |
+
+- A script that compares the output of `tripwork.py next` with an old id must use the new one.
+
+Tests: 2222 passed, 2 skipped in CI (the two consumer-workspace checks — privacy and survey-table categories — skip there; the corpus ships with the repo); `tests_browser`: 567 passed (headless Chromium and WebKit).
+
+## 2.2.0 — The photo goes back where it came from, today wears a tape, the share link opens today
+
+### Added
+
+- **Today's tape (shared page).** During the trip the home calendar's stamp for today wears
+  a strip of paper tape, a different one each day: nine patterns (stripes, dots, gingham,
+  diagonal, grid, scallop, diamond, dots on stripes, edged) in six of the reader's colours
+  (紅 藍 綠 芥末 橘 紫), never the colour of the stamp it sits on. The pick is made when the
+  page is rendered (`scripts/render/reader/tapes.py`): a pattern cycle and a colour cycle, each
+  shuffled once per trip from its title and first day, so a day shows the same tape on every
+  device and reload, every pattern has a day before one comes back, and a pairing does not
+  come back for 18 days; the tilt and the torn ends vary by day too. The page script only
+  marks which day is today, so the offline file and the no-script preview show no tape.
+  On the dark theme the ink is deeper and the dots light, so a tape keeps its colour.
+- **The tape sheet in the README**, light and dark, drawn by the shipped stylesheet:
+  `python docs/images/readme/demo_trip.py --tapes` re-takes it without the network.
+
+### Changed
+
+- **住宿 / 入境規定 / 行前清單 have a day page's top row (phone).** 「‹ 總覽」 sits at the top left,
+  where a day page has it (same place, same size), and the title is centred on the screen; the
+  list starts where it did.
+- **A photo grows out of its thumbnail and goes back into it (shared page, every width).**
+  Opening a stop's photo now opens it in the page's own layer: the photo grows from where it
+  sits in its card to full screen. Dragging down (touch) the photo follows the finger and
+  shrinks, the dark layer thins; let go moving down (or past 100 px) and it flies back into
+  its thumbnail, else it springs back. A tap on the photo, ✕, the dark layer or Esc go back
+  the same way. A thumbnail half under the map row or the list's top edge grows from, and
+  lands on, the part of it that shows. It plays with reduced motion on too: it is short and
+  only answers a tap or a drag. The page without script keeps the full-screen checkbox.
+
+### Fixed
+
+- **The base no longer jumps when a photo closes.** The full-screen photo used to be the
+  figure itself turned fixed, so its card lost the photo's height while it was open and the
+  list jumped back when it returned -- a moment with no photo, then the photo grew back.
+- **The share link opens today.** staticrypt leaves `#staticrypt_pwd=…` in the address bar
+  after the unlock, and any `#` used to stop today from opening, so the share link always
+  landed on the overview. Only a fragment that names a place in the page wins over today now.
+- **An opened stop shows its title (shared page, phone).** The day is one scroller whose title
+  row, map row and card top stick; opening a stop (an anchor jump) put it 8 px under the
+  scroller's top, under all of that, its title row and outline hidden. The scroller is now
+  padded by what covers its top -- the sticky rows plus the card's top edge and fade hanging
+  below them, read from the page and kept as the map row opens and closes -- so the stop lands
+  just below. Map chips and 來源 links land the same way.
+- **住宿 / 入境規定: the first card's top line shows.** A card's outline is a 1 px shadow outside
+  it, and the list's scroller had a pixel of room only at its sides, so the first card's top
+  line (and the last one's bottom line) was clipped, phone and desktop. The room is on all four
+  sides now; the cards have not moved.
+Tests: 2202 passed (the corpus ships with the repo, so CI runs the same count); `tests_browser`: 567 passed (headless Chromium and WebKit).
+
+## 2.1.0 — Chinese sources carry their region, home on the map, a survey list, ratings
+
+### Added
+
+- **Survey: collect and verify, no itinerary.** A brief with `mode: survey` needs only
+  `slug`, `short_name`, `destination` and `categories`; dates are optional. The pipeline
+  skips the travel advisory, verifies, and ends with a phone list page,
+  `trips/<slug>/<short_name> 清單.html` (`tripwork.py table <slug> --page`): the reader's own
+  stop card per place, grouped 吃的 / 景點 / 住的 / 其他, best rated first, no script needed.
+  Removing `mode` upgrades the folder to a trip; verified places carry over, and a new
+  `must_do` topic sends research back for it: research records the topics it searched in
+  candidates.yaml's `must_do_searched`, and the oracle asks a survey for that record.
+- **`tripwork.py table <slug> [fields | 吃的 | 景點] [--out FILE]`** prints verified places as
+  a Markdown table: name, category, area, address, hours, closed days, booking, intro,
+  rating, review count, rating warning, status, map link, sources.
+- **Opening times.** `hours.open` (optional, from the same source as `close`): lists print
+  `11:00–21:00（最後點餐 20:30）`; never used for scheduling.
+- **Ratings (optional).** `rating: {platform, score, count, source_url, as_of, note}` on a
+  candidate rides to verified-pois. Lists sort by it and warn on fewer than 30 reviews or a
+  `note`; a missing rating never stops or demotes a place, and ratings are never a conflict.
+- **Home on the map.** `home_origin_point` / `home_return_point` (a landmark near home, never
+  the address) are drawn first on day one and last on the last day: on the stops' map when the
+  home leg is within `routing.max_hop_mins`, on a small map of their own when longer (only the leg touching home decides; a flight
+  still starts a new map).
+- **Taiwan road and 村里 points.** When no name lookup is accepted, a Taiwanese address that
+  resolves only to its road stands in when the road point lies in the district
+  (`nominatim_road`), else its 村里's centre (`village_centroid`); both are approximate and
+  disclosed (「它地址那條路上的一點」/「它所在村里的中心點」), never a veto on a name hit.
+- **Lodging place ids.** accommodations candidates take `gmaps_place_id`; the hotel's map
+  link opens the exact place.
+
+### Changed
+
+- **Chinese carries its region.** `local_lang` refuses a bare `zh` (rule 1 names zh-TW /
+  zh-HK / zh-CN / zh-SG / zh-MY); a source counts as local only with the same region
+  (`ZH_tw`, `zh-Hant-TW` read as zh-TW). A source tagged only `zh` asks for its region.
+- **A lookup counts only when its name matches.** Each geocode tier takes up to five results
+  and keeps the first whose name matches the venue (local or roman); a bare-name hit must also
+  lie in the claimed district. A namesake elsewhere is no hit; a precise hit outside the
+  district (it may have moved) still stops to ask.
+- **Country codes.** 台灣 / 臺灣 / Taiwan / 中華民國 / ROC map to `tw` without a lookup; a
+  country name no lookup knows stops `verify` (exit 2) instead of searching worldwide.
+- **An official source is never a search results page** — for the bookable link and in a new
+  itinerary-gate check over advisory, calendar, seasonal and legs, each routed to the stage
+  that wrote it. `seasonal.yaml` joins the gate's inputs.
+- **Markdown labels.** A non-official source is named by its site, not 「官網」; a move row
+  leads with its mode's emoji, one per icon the reader draws (🚶🚆🚌🚗⛴️✈️🚡).
+- **Map labels.** The hotel is 「旅館」 at either end; 「出發／回家」 now mean home.
+
+### Fixed
+
+- The title list prints even without the font package; the page then stops in one line
+  (`pip install fonttools brotli`, exit 2), no traceback.
+- `SystemExit("text")` from a script prints its text (exit 1) through `tripwork.py`.
+- Gate 1a: 「所有來源都在 X」 for three or more sources on one site; a URL with no host is
+  not counted.
+
+### Migration
+
+- Run `python <plugin>/scripts/tripwork.py migrate <slug> --apply` once per trip (a dry run
+  first lists the counts): Chinese sources get their region where the URL proves it (a
+  .tw/.cn/.hk/.sg/.my domain, a zh-tw style path, a tw. subdomain); the rest stay `zh` and
+  ask for a region at the next verify. A brief's `zh` becomes zh-TW for a Taiwan trip;
+  another country is listed for you to set by hand.
+- Geocode caches written before 2.1.0 are looked up once more on the next verify.
+- To see home on the map, give trip-brief a landmark near home once; a brief with only the
+  home strings draws none. Re-run `tripwork.py maps <slug>` for tiles.
+
+Tests: 2190 passed (the corpus ships with the repo, so CI runs the same count); `tests_browser`: 485 passed (headless Chromium and WebKit).
+
+## 2.0.0 — one command for every script, sources counted by site, only open places offered
+
+### Added
+
+- **One entry point: `python <plugin>/scripts/tripwork.py <command> <slug>`.** Run from the
+  workspace root, it fills in `trips/<slug>` and `--work-dir work/<slug>` and calls the
+  script's own `main()`; everything after the slug passes through unchanged. Commands:
+  `next`, `verify`, `gate`, `export`, `export-gate`, `maps`, `photos` (defaults to
+  `--backend wiki`), `picker` (with a reply line it writes the picks back), `validate`
+  (without a name: every artifact), `fingerprint`, `publish`, `deploy`, `migrate`;
+  `-h` lists them. No Makefile: a cloud container has no `make`, and the oracle already
+  decides what runs next.
+- **`tripwork.py export` renders the deliverables.** The agent no longer writes the
+  rendering Python itself. md and html come from the same inputs `publish` renders from and
+  `export-gate` judges against, are written only together, and only after a gate report that
+  passed and is newer than every artifact the gate reads; a pre-v1.0 trip is sent to
+  `migrate`.
+- **The agent is told where tripwork.py is.** The session start names the absolute path
+  (Claude Code, Cursor, Codex, OpenCode, Pi; GEMINI.md names Gemini's install folder);
+  using-tripwork says how to find it otherwise, starting with the skill's Base directory.
+- **README: using tripwork in a Claude Code cloud environment** — the hosts to allow under
+  Network access › Custom, and the Cloudflare login there.
+
+### Changed
+
+- **Sources are counted by site.** Two URLs on one registrable domain are one source:
+  `www.example.com` and `example.com`, a port or `user@`, and two sub-domains of one site
+  (`zh.` and `en.wikipedia.org`). The Public Suffix List decides what one site is (a gzip'd
+  snapshot ships in `assets/psl/`); a blog platform it lists (blogspot.com, hatenablog.com)
+  keeps one site per author, a platform it does not list (pixnet.net) is one site. This
+  **reverses 1.3.0's "two travellers on one blog platform count as two"**: collect every
+  write-up as before, they just do not count twice. The gate note names the shared site.
+- **A search engine's results page is never a source** (Google, Bing, DuckDuckGo, Yahoo,
+  Naver, Daum, Baidu, Yandex): it does not count toward the two independent sources, and it
+  is no evidence that a place is still open — and its language does not count as the
+  local-language source.
+- **Only verified, still-open places are offered to pick from.** Research no longer asks the
+  user to choose between candidates it just found (one asked between brunch places, one of
+  them closed for good); picks come from verified POIs after source-verify. Hotels offered
+  for a pick each need a sourced OPERATIONAL status; routing-audit's replacement options are
+  verified POIs. The user is told how many places were left out. (A rule for the agent: the
+  plugin cannot intercept the question itself.)
+- **A retryable export-gate failure goes back to the source text.** `export` is a fixed
+  program, so re-rendering reproduced the defect forever. It now returns to
+  itinerary-synthesis to fix the artifact (never the rendered file), then gate, export and
+  export-gate again. When the inputs changed and the same failures come back, it stops and
+  asks, as a likely plugin defect (`repeat_of_previous`; the report keeps an
+  `inputs_fingerprint` to tell).
+- **A deliverable older than the gate report is exported again** before anything judges it.
+  An upstream change used to re-run the gate and then the export-gate on the old file, which
+  could end as "complete" on a deliverable the gate never saw.
+- **One trip is one Cloudflare Pages project.** `deploy` uploads this trip's locked page
+  only; it used to upload every trip under `trips/` into the one project.
+- `scripts/calendar.py` is `scripts/trip_calendar.py`, `scripts/render/reader/calendar.py`
+  is `month_calendar.py`: both shadowed the standard library's `calendar`.
+
+### Removed
+
+- **`python scripts/<x>.py` for pipeline scripts.** Each now exits non-zero and prints the
+  `tripwork.py` command to use. `scripts/_cli_bootstrap.py` is gone. Developer tools
+  (`design_board.py`, `bump_version.py`, `build_font_subsets.py`) still run directly.
+
+### Fixed
+
+- **`publish` without a password no longer crashes in an agent's shell** (getpass raised
+  EOFError with no terminal). It exits 2 and says to ask the user in the conversation and
+  pass the password as the `TRIPWORK_PUBLISH_PASSWORD='…'` prefix of that one command — or
+  to run it in the user's own terminal, which asks without echo.
+- **A page could be locked with a different password than the one asked for.** staticrypt
+  prefers an inherited `STATICRYPT_PASSWORD` over `-p`; every staticrypt run now gets this
+  run's password through its environment and none on its command line.
+- `build_font_subsets.py` started from no directory (the reader's `calendar.py` shadowed
+  the standard library).
+- **A place with an address wrote a verified-pois file that failed its own schema** (since
+  1.3.0: `geocode.query.address` was not allowed). The schema takes it now.
+- `export-gate` exits 2 when `itinerary.yaml` is missing (it used to judge against an empty
+  one); `publish` and `export` exit 2 on an empty itinerary or verified-pois, and `publish`
+  checks the trip (and a pre-v1.0 layout) before asking for a password.
+- `tripwork.py validate <slug>` with nothing to validate is an error, not a silent pass;
+  `tripwork.py next` works in a brand-new workspace with no `trips/` yet.
+
+### Migration
+
+- Replace every `python scripts/<x>.py …` in your own notes with
+  `python <plugin>/scripts/tripwork.py <command> <slug>`:
+
+  | before | now |
+  |---|---|
+  | `next_stage.py trips/<slug> --work-dir work/<slug>` | `next <slug>` |
+  | `source_verify_run.py trips/<slug> --work-dir work/<slug>` | `verify <slug>` |
+  | `gate.py trips/<slug>` / `export_gate.py trips/<slug>` | `gate <slug>` / `export-gate <slug>` |
+  | `day_maps.py trips/<slug>` / `photo_adapter.py trips/<slug> --backend wiki` | `maps <slug>` / `photos <slug>` |
+  | `title_picker.py trips/<slug>` / `title_picks.py trips/<slug> '<line>'` | `picker <slug>` / `picker <slug> '<line>'` |
+  | `validate_artifact.py trips/<slug>/data/<x>.yaml` | `validate <slug> <x>` |
+  | `input_fingerprint.py trips/<slug>/data/trip-brief.yaml advisory` | `fingerprint <slug> advisory` |
+  | `publish.py build trips/<slug> …` / `publish.py deploy trips/<slug> …` | `publish <slug> …` / `deploy <slug> …` |
+  | `migrate_v1.py trips[/<slug>]` | `migrate [<slug>]` |
+
+- Run `tripwork.py gate <slug>` once per trip: a POI whose second source was a search results
+  page, or whose operating evidence was one, is caught and sent back to source-verify to find
+  the real page.
+- A cloud environment needs the hosts listed in the README's FAQ allowed; deploying from the
+  cloud needs `CLOUDFLARE_API_TOKEN` in the environment's variables.
+- Give each trip its own Pages project name. A project that held several trips' pages keeps
+  only the trip deployed last.
+- The workspace layout is fixed: run tripwork.py from the folder holding `trips/` and `work/`.
+
+### Known limitations
+
+- The pick rule is a rule for the agent; the plugin cannot stop a question from being asked.
+- The pip wheel does not package `scripts.render.publish` (nor `assets/psl/`); tripwork is
+  installed as a plugin folder, which has both.
+- The official-source checks (a bookable POI's official link, travel-advisory's official
+  source) do not yet reject a search results page; no trip has one today.
+
+Tests: 1984 passed (the corpus ships with the repo, so CI runs the same count); `tests_browser`: 481 passed (headless Chromium and WebKit).
+
+## 1.3.0 — local sites and Taiwan travellers' write-ups, places checked by their address
+
+### Added
+
+- **Research reads Taiwanese travellers' write-ups too.** Every topic is searched twice: in
+  the destination's language (official sites, local review and listing sites) and in
+  Traditional Chinese for write-ups by Taiwanese travellers -- where people actually went,
+  what they liked, and the local name and address they give. A write-up counts as one source;
+  a place still needs at least one source in the local language before it goes on the plan.
+- **A place is checked against its address.** When a source gives the street address, the
+  map lookup by name is checked against it: a name match more than 2 km from the address is
+  taken as a namesake somewhere else (a cafe landing in another prefecture), and the place
+  is put on the street block its address names instead. That point is approximate and the
+  checklist says so, like a district centre. A name match near its address keeps its exact
+  point.
+
+  The address only counts when it is found to the street block (丁目) or finer and lies in
+  the place's district: an address matched far away, or only to its town, is ignored.
+
+### Changed
+
+- A place whose name is not on the map at all now sits on its address's street block, not
+  on the district centre, when it has one.
+- Hotels follow the same rule (accommodation-research).
+
+### Fixed
+
+- **Districts that exist on the map only as their 丁目 are found again.** 1.2.1 looked a
+  district up as a settlement, which kept schools named after it out but missed districts the
+  map holds only street block by street block; their places dropped to "unverified". Such a
+  district is now found as a place of that name, or by its first 丁目 -- still never a
+  building or bus stop named after it.
+- **A flaky connection no longer ends source-verify.** A map lookup that times out or finds
+  the server busy is retried; if the network stays down, the run stops with "re-run to
+  continue" and keeps every lookup made so far (it used to lose them all and report a
+  missing input).
+
+### Migration
+
+- Re-run source-verify on a trip to apply the address check; POIs with an address are looked
+  up again once. A new geocode source, `nominatim_address`, may appear in verified-pois.
+
+Tests: 1791 passed (the corpus ships with the repo, so CI runs the same count); `tests_browser`: 481 passed (headless Chromium and WebKit).
+
+## 1.2.1 — fixes from the first shared trip
+
+### Fixed
+
+- **The title picker works in a phone preview.** The iPhone and Android Claude app preview
+  runs no script, so every day looked picked while the button stayed at 「還差 N 天」 and
+  nothing could be copied. The reply line now follows your picks without a script and is
+  real text: long-press it to select the whole line, copy, paste it back (a day not picked
+  yet reads `D3=?`). In a browser the 複製選擇 button works as before, and the line is
+  selected after a copy in case the copy was blocked. The page no longer explains scripts.
+- **The picker's small stamps are the reader's stamps.** They now show the place name, the
+  day's tilt and the day's colour (a 返程 day is grey and dashed again), and the bar no
+  longer cuts their outer ring.
+- **The 住宿 / 入境規定 / 行前清單 cards keep their side lines.** The scrolling area cut the
+  left and right lines off, leaving only the corners, on the phone and on the desktop.
+- **A swipe from the screen edge is the phone's own back gesture.** On the shared page a
+  back swipe from the left edge also slid the sub-page, so the pages showed stacked and went
+  back twice. Swipes that start at either screen edge are left to the phone.
+- **Lookups stay in the trip's country.** When a place is not found by its name and
+  district, the fallback searches searched the whole world and could land on a namesake
+  abroad; they now stay in the destination country.
+- **A district's centre is the district.** It could land on a school or office named after
+  the district; districts are now looked up as places, and only a result that is the
+  district itself counts.
+- **A pun may swap a character for one that sounds the same.** A title that riffs on a
+  phrase with homophones (沖沖沖 for 衝衝衝) was rejected as "not reworked".
+
+### Changed (for agents)
+
+- `inter-stop-legs` and `itinerary-synthesis` say that `classify_leg` returns
+  `(status, reason)`: write `status` into the leg.
+
+### Migration
+
+- None. District centres cached by an earlier run are looked up again once (they have a
+  key of their own now). Re-run the title picker to get the new page.
+
+Tests: 1752 passed (the corpus ships with the repo, so CI runs the same count); `tests_browser`: 481 passed (headless Chromium and WebKit).
+
+## 1.2.0 — publish build for family, photos from Wikidata, phone gestures
+
+### Added
+
+- **A page to share with family.** When you ask to share a trip, tripwork makes a second
+  reader -- the same page, behind a password -- and puts it on your Cloudflare Pages
+  (`python scripts/publish.py build`, then `deploy`). It stops and asks before anything
+  goes on the internet. The password page names no trip, date or place, takes a Chinese
+  password (an iPhone keeps 注音: the field is plain text with a 隱藏/顯示 mask), remembers
+  the password if you leave 「記得密碼」 ticked, and works in a private window. Only the
+  locked page is kept; the URL is a random path, and the printed share link opens the page
+  without typing the password (send it to family only). Re-publishing keeps the link
+  working; a new password ends it.
+- **The shared page moves on a phone.** Swipe left or right between days (past half, or a
+  flick, changes the day; the first and last day bounce); swipe 住宿 / 入境規定 / 行前清單
+  right to go home; pull a zoomed map or photo down to close it. Opened during the trip it
+  shows today; the phone's back button always lands on the overview; the light/dark choice
+  made on the password page carries over. On a phone the day page is rebuilt on native
+  scrolling, so the map, title and card no longer drift apart while the calendar folds. The
+  check page you open from Files or LINE is unchanged.
+
+### Changed
+
+- **Photos come from Wikidata first.** For a landmark, the photo adapter now takes the image
+  Wikidata records for it (the entity within 1 km of the verified coordinates), and only
+  then searches Openverse / Commons. Photos are shrunk to 640 px (JPEG), with the camera's
+  orientation applied.
+
+### Fixed
+
+- **A photo you provided is never replaced.** The adapter rebuilt the whole side-file
+  `verified-pois-media.yaml` on every run, so a run wiped entries another tool had written.
+  It now keeps every entry already there and fills only the POIs without one.
+- **A failed photo download tries the next candidate.** A failed thumbnail keeps the full
+  image, and one POI's error no longer stops the run.
+
+### Migration
+
+- Check pages (`<stem>.html`) need nothing.
+- Sharing needs Node.js 18+ and a free Cloudflare account; the first time, run
+  `npx wrangler login`.
+- Photo entries written by an earlier adapter run are kept as they are (not shrunk or
+  re-fetched): delete an entry to have it fetched again.
+- Gestures are checked in WebKit (iPhone) and Chromium at Android sizes; no real Android
+  phone was tested.
+
+Tests: 1739 passed (the corpus ships with the repo, so CI runs the same count); `tests_browser`: 436 passed (headless Chromium and WebKit; the lock page with the real staticrypt).
+
+## 1.1.2 — the phone calendar is open or folded
+
+### Changed
+
+- **Opening the map card keeps a folded calendar folded.** With the small calendar
+  scrolled away, opening the map card brought it back and threw the list to its top:
+  every fold rule was switched off while the map was open, a guard left from an earlier
+  layout. The fold now holds with the map open or closed, and the zoomed map still covers
+  the screen.
+- **The small calendar is open or folded, never between.** In a browser, the fold
+  follows your finger as before, and a scroll that stops in between glides to the nearer
+  end. A day that ‹ › opens with the calendar folded can be pulled open again. In a
+  preview that runs no script (the iPhone Files app, LINE), the calendar switches at
+  half its height instead.
+
+### Added (for contributors)
+
+- **Privacy rules and a guard.** The repository never carries a user's trip:
+  `tests/test_privacy.py` rejects workspace paths, stray images and personal e-mail
+  addresses everywhere. Where a consumer workspace exists, it also rejects every slug,
+  stayed-at hotel, member, home endpoint and date of a trip still ahead, derived from
+  that workspace. It checks files about to be committed, not only tracked ones. The test
+  corpus (`tests/corpus/`) is de-identified and ships with the repo, so its guards run
+  in CI too.
+- **A design board any AI agent can make.** `python scripts/design_board.py board.yaml`
+  writes one offline page of visual choices to `.design-board/`. Each card shows its key,
+  and 「複製選擇」 gives a line to paste back.
+
+Tests: 1692 passed (the corpus ships with the repo, so CI runs the same count); `tests_browser`: 366 passed (headless Chromium and WebKit).
+
+## 1.1.1 — the phone calendar folds by its own height
+
+### Fixed
+
+- **The phone's small calendar folds by its own height.** v1.1.0 folded it a fixed
+  98 px, the height of a two-week calendar. A trip inside one week has a 60 px
+  calendar, so folding 98 px pushed the day's title up over the month row; a trip
+  across three or more weeks has a taller one, which 98 px did not put away. Each day
+  page now carries its calendar's week count, and the fold is 22 px plus 38 px per week.
+  The calendar's rows are fixed to match: a week whose seven days are all trip days
+  drew 30 px rows and now draws 38 px like the others. Two-week trips look exactly as
+  before (trip-e: 24 screens, pixel-identical). Found on the README's one-week
+  demo trip.
+
+### Changed
+
+- **The README shows a made-up trip.** Its screenshots, caption and file-name examples
+  come from a fictional 3-day Tokyo trip (`docs/images/readme/demo_trip.py`), never a
+  user's own. The title picker is shown on the desktop, where it is used.
+
+Tests: 1677 passed with the consumer corpus mounted; `tests_browser`: 352 passed (headless Chromium and WebKit, the fold checked on one-, two- and many-week trips). The CI count is recorded in the PR.
+
+## 1.1.0 — the phone reader holds still
+
+The whole v1.0.0 dogfood report in one release, so the consumer upgrades once:
+- topic 1, the phone layout: TW-095, TW-094, TW-087, TW-D1, the missing year-month on
+  day pages, and photos that could not be opened;
+- topic 2, the map card and moves;
+- topic 3, the address (TW-096);
+- topic 4, the licence notice (TW-D3);
+- topic 5, the pipeline data fixes (TW-085, TW-088 … TW-093, TW-097);
+- topic 6, the desktop layout;
+- topic 7, the day titles and their picker;
+- the user's check of the result.
+Every choice below was made screen by screen with the user on the real trip-e trip.
+
+### Changed
+
+- **Phone pages no longer scroll.** A day stacks the dashboard's three blocks: a
+  fixed header, a fixed map row, and the list card, which is the only thing that
+  scrolls. The list card has a visible bottom edge. The home fits one screen.
+  Measured on trip-e, all 8 days at 390×844 and 360×640, with and without
+  JavaScript: document height equals the screen, and the edges line up at 14–376 px
+  (content inside the cards at 26–364 px).
+- **Header row**: "‹ 總覽" on the left, the year-month centred, the light/dark toggle
+  on the right. The "D2・10/13（二）函館" line and the tip line are gone, and the title
+  now ends with a "Day N" pill. The selected day on the mini calendar glows in its
+  area colour. On the desktop the title sits under the mini calendar.
+- **One calendar card per trip.** A trip across months is one card titled
+  "2026 年 10～11 月" ("2026 年 12 月～2027 年 1 月" across years). It draws continuous
+  weeks, padded to five rows. The 1st of a month reads "11/1" on every calendar that
+  crosses months, the desktop's big calendar included.
+  A typo'd date cannot stretch it: a run with more than two empty weeks keeps only
+  the trip weeks.
+- **Stamps keep both rings without crossing the text.** The inner ring cut through
+  the date and area name on the 30 px day calendar (5–6 px into the text). It is now a
+  second ring outside the circle, at every size; picked by the user from five
+  variants on trip-e.
+- **Phone map card**:
+  - Collapsed, it is 44 px.
+  - The chips sit in one row that scrolls sideways; there is no "‹ 上一個 / 下一個 ›".
+  - No legend: the list card below already lists every stop.
+  - The map is a full-width 4:3 frame, and image and pins are cropped together.
+  - Every tiled frame shows "© OpenStreetMap" (the OSMF guidelines do not accept "OSM").
+  - An open map row shrinks and scrolls inside itself before it can push the list off
+    a small screen.
+- **Overviews are 4:3.** `day_maps.py` now makes every overview 4:3 (at least
+  480×360), so the phone's frame never crops a pin: 34/34 on trip-e. An older
+  side-file at another ratio is shown whole, not cropped.
+- **The light/dark toggle** uses the Lucide moon and sun (bundled, ISC) instead of
+  text glyphs that sat off-centre. It sits top-right on the phone and bottom-right
+  on the desktop.
+- **Stops, map chips and 來源 open by in-page anchors, so they work with no script.**
+  The reader is opened in LINE and the iPhone Files app, whose previews run no
+  JavaScript, so the v1.1 centring script never ran there. Each stop, each chip
+  (出發 / 回家 / 全圖 included) and each 來源 is now a link to a target on the page:
+  the browser's own jump brings the stop's title to the top of the list card, and
+  `:target` decides what is open and which map view shows. Tapping an open stop
+  closes it in place. Measured in Playwright WebKit with JavaScript off: all 42 stops
+  of trip-e at 390×844 and 360×640. The user confirmed it on an iPhone in LINE
+  and in Files.
+  Opening a 來源 keeps its stop's map view and chip lit. Known trade-off: each tap
+  is a step in the browser history, so the back gesture first walks back through the
+  stops opened (rewriting history needs a script the previews do not run).
+- **On the desktop the script only polishes the jump**: it glides the stop to the
+  middle of the list card. export-gate's hash follows the new constant.
+- **export-gate**: an in-page link must land on an id that exists on the page
+  (`links_well_formed`); the ⌄ marker is allowed inside an anchor toggle.
+- **export-gate**: `map_attribution_present` now requires the credit on every tiled
+  map frame. The failure message is unchanged.
+
+### Added
+
+- **Tap a stop's photo for fullscreen**, the same way as the map: a CSS checkbox, no
+  script. The v1.0 lightbox had been retired without a replacement.
+- **Sub-screens** (住宿 / 入境規定 / 行前清單) scroll inside themselves on the phone
+  now that the page is locked.
+- **Tapping a control no longer flashes a grey box or selects its text** (stamps, list
+  titles, chips, tiles, the theme toggle; reported on the iPhone). Text inside a stop
+  stays selectable for copying.
+- **A home taller than the screen scrolls** (landscape, small phones), so its tiles
+  stay reachable.
+
+### Changed — map card and moves (topic 2)
+
+- **A 移動列 is one line: mode, minutes, distance** ("計程車 30 分（9.7 km）", the user's
+  pick of four formats). The note and the 估 mark are gone, and no route button was
+  added (the user's call: every stop already has its own 導航). The map card's 路線列 is
+  gone (the user's check): the move rows already say it.
+  `legs.yaml` may record `km`; inter-stop-legs now records it.
+- **The ropeway and bus icons are whole again.** The inline-icon helper stripped the
+  root `<svg>`'s fixed size so CSS can size it, but stripped every child's
+  `width` / `height` too: the `<rect>` that is the cable car's cabin and the bus's body
+  vanished, leaving fragments (the user's "unreadable ropeway icon"). Only the root
+  tag is touched now; a guard compares every bundled icon's shapes with its Lucide file.
+- **The bus icon is the side view the user chose for v1.0** (train front, side-view bus,
+  footprints, side-view car); it had shipped as the front view.
+- **Every bundled icon comes from one Lucide release (0.469.0)**; the bundle had mixed 0.460.0
+  and 0.469.0. The shapes are identical, so nothing on the page changes.
+- **Time labels on the map never overlap.** On the 全圖 view labels overlapped on 5 of
+  trip-e's 8 days (19 pairs); every label was 92 wide for "08:00". A label is now
+  bare text with a white halo sized to its text, set in the nearest spot clear of other
+  labels, dots and the credit; no pill, no leader line (the user's pick after two
+  rounds on the design board). trip-e: 0 overlaps on all 8 days.
+- **A hotel left by a long train has a map again.** trip-e D3 and D4 "出發" showed a
+  blank grid: the hotel, then a long leg first thing, makes a segment of one, which
+  `day_maps.py` drew nothing for. The reader now borrows that stop's close-up from any
+  day (here, the night before's 回家), and `day_maps.py` writes one into the side-file's
+  shared `closeups` for a stop that is alone on every day.
+- **The chip row shows there is more** (TW-D2; chip size unchanged, the user's call).
+  On the phone the right edge fades while chips remain to the right and the left edge
+  while some are scrolled past; at either end that edge is crisp (a scroll-driven mask,
+  Safari on iOS 26; elsewhere a static right fade).
+- **The airport has a 導航 button (TW-084).** A day that starts or ends somewhere that
+  is not a lodging gets a name-search button from the first / last move's endpoint,
+  or its legs.yaml leg's.
+- **No all-day Google Maps button (TW-086).** It strung every stop into one route, more
+  waypoints than Google Maps takes on a phone. The user's call: remove it -- every stop
+  (and now the airport) has its own 導航, which carries the place id.
+
+### Added — address (topic 3: TW-096)
+
+- **An opened stop shows its address, with a 給司機看 sheet.** Under the local name, an
+  地址 row in the local language, from the venue's official source; its 給司機看 button
+  opens a full-screen, big-print sheet of the local name and address to hand a taxi
+  driver (an in-page target: no script, works in LINE / Files previews; closing returns
+  to the stop, still open). The user's pick on the design board. Markdown rows carry
+  the address too.
+- `address_local` + `address_source` on verified-pois, candidates and accommodation
+  candidates; source-verify and accommodation-research record them (never from Google
+  Places). A scheduled stop with no address is a gate **notice**, never a failure (the
+  user: an area or a market whose official address is an office has none).
+- trip-e: 26 of 28 stops and all 3 hotels, each from an official page.
+
+### Changed — licence notice (topic 4: TW-D3)
+
+- **The licence line is off the page** (the user's pick). OFL FAQ 1.10 / 1.12: a font
+  embedded in a document needs no licence text; Lucide's ISC licence wants its notice in
+  every copy, not on screen. The font copyrights and the full ISC text now open the file
+  as a comment, read from the licence files the plugin ships; export-gate's
+  `licences_present` checks that comment.
+- **Every map credit is plain text** «© OpenStreetMap». This topic first linked it to
+  openstreetmap.org/copyright; the user's check removed the link (it was tapped by
+  accident). The page's licence comment names the copyright page;
+  `map_attribution_present` checks the credit text.
+
+### Changed — desktop layout, home stamps, trip card, map zoom (topic 6)
+
+Every pick made on the design board with the real trip-e page.
+
+- **Desktop day title heads the list** (pick D2), sticky as the list scrolls; the
+  phone keeps it in its fixed header. The list keeps stops clear of it
+  (`scroll-padding-top`).
+- **Phone home stamps are 34 px** (pick P1): the day page's mini-calendar
+  proportion — the 14 px date fills the stamp and the stamps no longer touch.
+- **Desktop home is the phone's month card, zoomed ×1.9** (the week grid with
+  stop lists is retired): month title 27 px, weekdays 23 px, days 27 px; stamps
+  65 px with whole-px lines 3 / 2 at 3 (Chromium floors a 1.5 px border, WebKit
+  keeps it). Each trip stamp carries the day's theme on its ring — 13 px, the
+  stamp's colour, centred at the top, turning with the stamp, 3 px out from the
+  outer ring; a theme over 15 characters ends in 「…」. Stamp text is 25 / 13 px
+  (21 px for a cross-month date) so it stays inside the inner ring.
+  On a narrower or shorter window the stamps (ring and text with them) shrink
+  until a theme clears its neighbours — ~48 px at 1024 wide; the page also keeps
+  a left gutter there so the theme button covers nothing.
+- **旅程與費用 card on both homes** (picks C2 + S): each stay in its stamp
+  colour with nights, lodging and that stay's cost, then transport (含周遊券
+  when a pass is used) and the total, with a note on what the estimate leaves
+  out. Many stays scroll inside the card; the edges fade where there is more (the
+  map chip row's fade, turned vertical). The desktop dates line breaks in two.
+  Cost line items name their lodging with a new `poi_id`; a hotel stayed at twice
+  shows each stay's own amount. A list that fits shows no fade.
+- **Zoomed map and photo** (pick Z1-a + close rule A): a bar under the enlarged
+  map — 在 Google Maps 開這裡 ↗ (the live map of that area) and ✕ 關閉 — and tapping the map, the dark
+  layer or ✕ closes it; only the link leaves. The photo fullscreen works the same
+  way with its source credit. The small-map credit is plain text again (tapping
+  it zooms).
+- **M-1 fixed**: on a short desktop window a split day's frames shrink to ~150 px
+  and the corner credit covered a time label; the desktop shows the credit line
+  under the map instead (OpenStreetMap: one attribution per document of static
+  images). Guarded at four desktop sizes, every chip's view.
+
+### Added — day titles and the title picker (topic 7)
+
+Every rule picked on the design board.
+
+- **Six title candidates a day**, each one shape × one twist: 兩拍對仗, 一句話, 三連,
+  問句, 回環, 頂真, 數字句, 疊字擬聲 × 押韻, 諧音, 反差, 誇張, 換視角, 對調, 雙關, 轉折
+  (no 四字改寫, 老梗, 從…到…, 比較句). Of the six, at least 3 paint a scene and end
+  on it, at least 3 carry a twist; each skeleton at most twice; two short (≤7), two
+  mid (8–10), two long (11–13, punctuation counts). Across the trip a keyword (蟹,
+  熊, 啤酒 …) sits in at most 2 days, a word-play shape in at most 2, and no sound
+  repeats (咕嚕 / 咕嘟). Checked by `scripts/day_titles.py` in the itinerary gate.
+- **Rhyme on Taiwan readings**: the last two halves must share rhyme group and tone
+  (蟹 ㄒㄧㄝˋ / 夜 ㄧㄝˋ; 雪 ㄒㄩㄝˇ / 街 ㄐㄧㄝ does not count). Readings come from
+  教育部《國語小字典》 (版本編號 2019_20260929, downloaded 2026-10-01, CC BY-ND 3.0 TW),
+  shipped unmodified in `assets/dict/moe-mini/` with the Ministry's usage notes and a
+  `SOURCE.md`; `scripts/zhuyin.py` reads it with the standard library. A polyphone
+  is read by its neighbours as the dictionary's own examples record them; when that
+  cannot settle it the line is not called a rhyme.
+- **The title picker** (`scripts/title_picker.py` → `work/<slug>/挑標題.html`, new
+  stop `day_title_pick`): the headline on top (the brief's pick preselected), then
+  one column per day — the stamp's ring shows the tapped line, the lines short to
+  long with a 注音 rhyme tag, 再給我 3 個, or your own words; a bar shows every pick
+  and copies one line once each day has one. The same list prints as plain text.
+  `scripts/title_picks.py` reads the line (`tripwork 標題 H=2 D1=3 D2="…" D5=+`,
+  full-width forms fine, partial replies fine) back into `itinerary.yaml` and
+  `trip-brief.yaml`; a bad reply writes nothing.
+- **Picks are never blocked by the gate**: two neighbouring days with the same
+  skeleton, or one twist on more than a third of the days, is a gate notice. What the
+  gate would refuse is caught when you reply instead: your own words with a mark the
+  reader does not allow (an em dash …), or two days ending on the same title — the
+  reply is refused with the reason and nothing is written. No line is offered on two
+  days, and a candidate passes the same AI-tone scan as the rest of the text. After
+  再給我 3 個 the page is written again with your other picks kept.
+
+### Changed — headline candidates (topic 7)
+
+- Six headline candidates instead of three, one per device; 雙關
+  (`double_meaning`, with `riff_on`) replaces 老梗 (`meme`). More come three at a
+  time. The day theme is ≤13 characters (was 12).
+
+### Changed — the user's check (after topic 7)
+
+- **The reader opens light**; the theme bubble turns it dark. On the desktop the
+  bubble moved to the bottom-right corner (the page keeps a right gutter for it on
+  windows under ~1360 px); the phone keeps it top-right.
+- **The zoomed map's button opens Google Maps** at the area being viewed (it opened
+  OpenStreetMap's copyright page); every OpenStreetMap credit is plain text.
+- **No 路線列** above the map on either width.
+- **「‹ Day 2 ›」 beside every day title** (picks S1 and F1): the Day chip steps to the
+  previous or next day (no script; the first and last days show a dimmed end), pinned
+  to the title row's right end so it holds its place whatever the title. Phone 25.5 px,
+  as tall as the title row, with 13 / 15 px glyphs (pick T25b); desktop 21 px, the ink
+  height of its title. Both are centred on the title by the glyphs' ink; a browser test
+  measures that ink in both engines.
+- **The title picker is one sheet that does not scroll** (pick L2): the headline is the
+  first card of the row, each day follows; lines scroll inside their card with the
+  desktop trip card's fade, the row scrolls sideways with the time chips' fade. Each
+  card opens on its current title (the ring shows it); blue stamps' rings draw in blue.
+  Desktop cards are 292 px, the width the longest line with its rhyme tag needs.
+- **Desktop scrolling** (picks T1 + B1): the day list, the stop legend and the sub-screen
+  popups show a thin scrollbar in the reader's colours instead of the 15 px grey one; the
+  list and the popups fade at their edges by gradients of their own background laid over
+  the content (not a mask, which cut content hard under the title): the top gradient
+  hangs from the title once you have scrolled, the bottom one goes at the end, and a list
+  that does not scroll shows neither. Both gradients of a scroller run on the one scroll
+  timeline it names: on two anonymous timelines the first scroll after opening a day
+  stalled for seconds on the user's computer (their cross-test).
+- **The phone's small calendar goes away as you scroll the day** (pick H1c). The page
+  stays still and the list card stays fixed to the bottom of the screen, the only thing
+  that scrolls (as topic 1 decided). Scrolling the card up first puts the calendar away,
+  98 px: the title, the map row and the card's top rise with your finger and the content
+  moves 1:1. Every day can do it; a short day such as 10/12 scrolls at least that far.
+  The card keeps its whole outline and its 8 px gap under the map. The current day's
+  glow is whole with the calendar out and gone with it away. A stop you jump to lands at
+  the card's top. With the map card open nothing folds. 給司機看 and a photo opened full
+  screen still cover the whole screen: the card is not clipped while one is up. Only
+  transform, clip-path and opacity animate. (H1b, which scrolled the whole page, was undone: it hid the card's
+  outline, could drag sideways, and could not fold 10/12. H1, a collapse animation, moved
+  the content faster than the finger.)
+- **The stepper keeps a put-away calendar away** (H1c2, no script, so LINE and the Files
+  app keep it too). Each day has a second radio, the day opened with its calendar away.
+  ‹ › open the next day that way once the calendar is more than half away, and as usual
+  otherwise. A day opened that way starts its list from the top. At the top of the list
+  the month shows a ⌄, and tapping the month opens the calendar.
+- **給司機看 closes wherever it is tapped**, not only on ✕ (the address can no longer
+  be long-pressed to copy: the sheet is for showing).
+
+### Removed
+
+- **The LINE short text (`<stem>.txt`).** The HTML reader, sent as a file through LINE,
+  is the shared deliverable now (the user's call). `scripts/render/line_short.py` and the
+  `.txt` path are gone; the pipeline only ever required md + html.
+
+### Fixed — pipeline data (topic 5: TW-085, TW-088 … TW-093, TW-097)
+
+Each fix closes a workaround the trip-e consumer had to apply (dogfood report,
+appendix A). Measured end to end on a copy of trip-e with all seven workarounds
+undone at once: gate pass, export-gate pass, next_stage complete.
+
+- **A timetabled train is no longer "implausibly fast" (TW-088).** The hop speed table
+  had no `rail` or `ferry`, so a JR limited express (88 km in 160 min) was judged
+  against urban transit at 15 km/h. It now covers every move mode (rail 200, ferry 40,
+  taxi 40, ropeway 40 km/h), and a guard keeps it in step with the move table. All
+  five of trip-e's rail hops are `ok`; 函館→洞爺 in 20 min is still implausible.
+- **A move from a district-centroid stop is not judged by the straight line (TW-089).**
+  When either end's coordinate is its district's centroid (`cluster_fallback`), the
+  move is found but not compared, so an honest 50 m walk is no longer a mismatch.
+- **Taxi is a leg mode (TW-085).** `legs.yaml` accepts `mode: taxi`; it needs a measured
+  `duration_mins` and can be `drive_too_long`, like a drive. The reader shows
+  "計程車 30 分" instead of "開車".
+- **Re-running source-verify keeps what an overlay recorded (TW-090).** `name_zh`,
+  `gmaps_place_id`, `hours`, `closed_days` (every verified-pois field a candidate cannot
+  carry and the driver does not compute, read from the schemas) and a source's
+  `official` flag survive a re-run. The candidate's own `official` still wins.
+- **Re-running source-verify keeps a confirmed coordinate (TW-097).** A POI that was
+  `verified` and is looked up with the same strings keeps its coordinate instead of
+  being geocoded again; the region is still re-checked. On trip-e a full re-run
+  had re-geocoded six hand-confirmed POIs to wrong places ("一番館" to Nara, "福鮨"
+  to China) and marked them `conflicting` (already so before v1.1); now it changes
+  none and makes no network request. `geocode.query` records the lookup strings;
+  `--regeocode` forces a fresh lookup.
+- **One POI pool everywhere (TW-091).** The gate, export-gate and the renderers all call
+  `scripts/gate.py::poi_pool`. For an id that is both a verified POI and a chosen
+  lodging, verified-pois wins each field and lodging-only fields (`booking`, cost,
+  facilities) are kept. The export gate no longer fails a hotel on a "first official
+  source" that only the other record had.
+- **A district centroid must land in its district (TW-092).** A centroid lookup whose
+  result does not name the district is refused ("小樽市堺町" resolved to a museum in
+  色内), leaving the region unconfirmed instead of compared against the wrong point.
+  A candidate may carry `district_query`, the string used only to geocode, so
+  `district` stays the readable name used in links. On the workspace's cached
+  districts: 2 of 25 refused, both genuinely elsewhere.
+- **Rush-hour windows can be scoped (TW-093).** A `peak_windows` entry may carry `days`
+  and `areas`; `in_peak` takes the day and the area and no longer flags a Sunday or
+  another city. Unscoped windows behave as before.
+
+### Migration
+
+- Day titles: every day now needs `theme_candidates`. A trip from before this release
+  fails the itinerary gate with `day theme invalid: … has no theme_candidates`, which
+  routes to itinerary-synthesis to write them; it then stops for the title picker.
+  The existing `theme` is not lost: pick it again, or keep it as your own words.
+- Headline: a brief with three candidates fails `trip-brief headline invalid`, which
+  routes to trip-brief's names-only re-run to propose six. A brief whose candidates use
+  the retired `meme` device no longer validates against the schema, so the orchestrator
+  sends it back to trip-brief (rule 1) to be rewritten.
+
+- cost-rollup now records `poi_id` on each lodging line item. An older `cost.yaml`
+  still renders: the 旅程與費用 card shows the route, transport and total, without each
+  stay's cost, until cost-rollup is re-run (or `poi_id` is added by hand).
+
+- An old trip folder may still hold a `<stem>.txt`; nothing writes or reads it any more,
+  delete it if you like.
+
+- To get 4:3 overviews, run `python scripts/day_maps.py trips/<slug>` again and re-export
+  the HTML; older side-files keep working and are shown uncropped.
+- **routing.yaml**: a rail or ferry hop recorded `implausible` under the old table now
+  re-derives `ok`, and the gate fails the recorded value. Re-run routing-audit (or set
+  those hops' `flag` to what `classify_hop` now returns). trip-e: 5 rail hops.
+- Optional, to drop the workarounds: a taxi leg can say `mode: taxi`; a rewritten
+  `district` can go back to its readable name with the geocode string in the
+  candidate's `district_query` (then re-run source-verify); `peak_windows` can carry
+  `days` / `areas`.
+
+Tests: 1671 passed with the consumer corpus mounted; `tests_browser`: 226 passed (headless Chromium 153 and WebKit 26.6, phone 390×844 / 360×640 / landscape and desktop, with and without JavaScript). The CI count is recorded in the PR.
+
+## 1.0.0 — the reader redesign: a trip folder you can open, a page you can read on a phone and a desktop
+
+The deliverable is now a page to read, not a document to scroll. The trip folder shows
+the deliverables at the top and keeps everything else in `data/`. The pipeline collects
+the facts the page needs, and the gate refuses an itinerary that lacks them. Built in
+seven plans, one PR each (#46–#51 and this one); spec
+`docs/superpowers/specs/2026-09-30-tripwork-v1.0-reader-redesign-design.md` (local).
+
+### Added
+
+- **The HTML reader** (`scripts/render/reader/`, via `render_html_page`). It is one
+  self-contained, offline page:
+  - **Home**: the KUSO headline, a stamp calendar coloured by where you sleep, and the
+    住宿 / 入境規定 / 行前清單 screens.
+  - **Day pages**: each day runs from last night's hotel to tonight's. Every move row
+    has its mode icon, minutes and km, with 估 marking estimates. Gaps and tight
+    transfers are marked. One stop opens at a time and shows its photo, intro, hours,
+    arrangement and named sources, official first. 備案 / 選項 appear under the stop
+    they belong to.
+  - **Maps**: every day has a map card. Time chips share the list's radio group; each
+    stop gets a close-up; tap a map for fullscreen and pinch to zoom; one button opens
+    the day's stops in Google Maps. A hotel-change day splits at the long move and
+    gets a route bar.
+  - **Look**: warm dark by default, with a light toggle. Zen Maru Gothic and 源泉圓體
+    are subset to the page's own text; icons are Lucide. The fonts (OFL) and icons
+    (ISC) ship with the plugin.
+  - **Phone**: pure CSS. Quick Look runs no script.
+  - **Desktop (≥1024 px)**: the same DOM becomes a big-calendar home (DH2), overlays
+    for the three screens, and a per-day dashboard (calendar / map / list). One
+    fixed script keeps the chosen stop centred.
+- **`scripts/day_maps.py`** (optional, the `[maps]` extra) writes `data/day-maps.yaml`
+  from OpenStreetMap tiles:
+  - one overview per segment and a close-up per stop;
+  - a User-Agent with no personal data, cached tiles, at most one request a second;
+  - `--offline` reads the cache only.
+  - Without the side-file each day draws a schematic. When the itinerary has moved on
+    since the maps were made, the reader also falls back to the schematic instead of
+    pinning onto the wrong street.
+- **Data the reader needs, enforced by the itinerary gate.** Eight checks, each routed
+  to the stage that fixes it:
+  - `day_chain_complete`, `moves_recorded`, `alternatives_valid`, `day_theme_valid`,
+    `checklist_structured`, `sources_complete`, `lodging_area_labelled`,
+    `brief_names_valid`;
+  - one re-derivation axis, `rederive_moves` (km never shorter than the straight
+    line; minutes within each mode's speed ceiling).
+- **trip-brief**:
+  - a short name that names the deliverables, e.g. `2026-05-12 東京 3天2夜`;
+  - three KUSO headline candidates in three different devices, then a stop for your
+    pick (new `STOP_FLAGS` entry `("trip-brief", "headline_pick")`).
+  - itinerary-synthesis writes a ≤12-character poetic theme for every day.
+- **export-gate HTML checks**:
+  - `scripts_whitelisted` (replaces `no_raw_script`): the only script allowed is the
+    reader's own, matched by sha256. Handlers, frames, objects, forms, meta refresh
+    and `javascript:` URLs fail.
+  - `img_src_offline` (replaces `img_src_safe`): every image and stylesheet `url()`
+    is embedded. An `https://` image no longer passes.
+  - `licences_present`, `expandables_are_details`, `legs_have_mode_icon`.
+  - `map_attribution_present`: every tiled map card carries the OpenStreetMap credit.
+- **Interaction checks in CI** (`tests_browser/`, `.github/workflows/browser.yml`,
+  the `[browser]` extra). Headless Chromium on the release tour measures:
+  - the chip/stop/view linkage on every day;
+  - overlays and fullscreen maps on screen;
+  - no page wider than a phone;
+  - the dashboard never scrolling;
+  - the chosen stop centred within 2 px without rebound.
+
+### Changed
+
+- **Trip folder**:
+  - `trips/<slug>/<stem>.{md,html,txt}` sit at the top; every artifact lives in
+    `trips/<slug>/data/`.
+  - gate / export-gate reports, stage-state and caches live in `work/<slug>/`.
+  - `scripts/paths.py` is the one place paths are decided.
+- **Itinerary shape**:
+  - `itinerary.title` is retired. The HTML, the Markdown and the LINE text are all
+    headed by the brief's `headline` plus the dates line (`scripts/render/heading.py`).
+    Synthesis no longer writes a title. An old itinerary keeps its title harmlessly:
+    it is read only when a renderer is called without a brief.
+  - Inline `▸` rows and the trip-level `contingency` are replaced by per-stop
+    `alternatives`.
+  - The checklist is structured: kind / task / due / links.
+- **export-gate report names**: `html_no_raw_script` is now `html_scripts_whitelisted`,
+  and `html_img_src_safe` is now `html_img_src_offline`.
+- **Photos** show inside the opened stop. The 0.36.0 click-to-enlarge lightbox is gone.
+- **Page weight**: each distinct image (map, close-up, photo) is embedded once. On
+  the real trip-e trip, before maps, the page drops from 6.15 MB to 4.85 MB
+  (6,149,743 → 4,846,253 bytes).
+
+### Migration
+
+- **A pre-1.0 trip stops at next_stage rule 0.7.**
+  - Run `python scripts/migrate_v1.py trips/` (a dry run: it lists every move), then
+    run it again with `--apply`.
+  - It moves files and rewrites none. Old deliverables go to `data/legacy-exports/`,
+    and the gate reports go to `work/<slug>/`.
+  - Re-running finishes a half-done migration.
+- **After migrating**, the gate routes each trip to the stages that fill the new data.
+  - trip-brief asks you to pick a headline.
+  - accommodation-research adds area labels.
+  - source-verify adds source names.
+  - synthesis rewrites move rows, `▸` rows and the checklist, and adds day themes.
+  - Then export renders the new page.
+  - Checked on copies of all 10 consumer trips: every one stops at rule 0.7, migrates
+    cleanly, then routes to a stage. Every trip with an itinerary renders without a
+    crash before those stages run.
+- **Consumer scripts** must read and write artifacts in `trips/<slug>/data/`. Use
+  `scripts.paths.artifact_path(trip_dir, name)` rather than joining paths yourself.
+  - `tripwork-workspace/scripts/gmaps_media.py` reads `itinerary.yaml`,
+    `verified-pois.yaml`, `trip-brief.yaml` and `accommodations.yaml` from the trip root
+    and writes `verified-pois-media.yaml` there.
+  - After migrating, its reads fail with FileNotFoundError, and a file it writes at the
+    root trips rule 0.7 again.
+- **Anything reading `export-gate-report.yaml`** must look for
+  `html_scripts_whitelisted` instead of `html_no_raw_script`, and `html_img_src_offline`
+  instead of `html_img_src_safe`.
+- **Photo side-files** with `https://` photo URLs no longer render. Photos must be
+  embedded `data:image/` in png, jpeg, webp or gif. The photo adapter embeds whatever
+  type the server sends, so an SVG or TIFF original is now skipped (every photo in the
+  consumer corpus is jpeg).
+
+Tests: 1455 passed with the consumer corpus mounted; 1435 passed + 20 corpus-gated skips in
+CI (no corpus); `tests_browser`: 24 passed (headless Chromium 153, locally and in the new
+browser workflow). Each new guard was confirmed red by injecting the bug it names.
+
+## 0.36.0 — one stop-flag vocabulary; centroid coordinates disclosed in the deliverable
+
+Two follow-ups from the 0.35.1 matrix review, both confirmed against the consumer corpus
+before any code changed.
+
+- **Stop-on-confirmation has one list: `scripts/orchestration.py::STOP_FLAGS`.** Three
+  hand-kept lists described the same halts and had drifted: the orchestrator's paragraph
+  (11 kinds), using-tripwork's iron-rule row (5), and each stage's own Stop condition. Five
+  stage halts appeared in no orchestrator list: `lodging_outside_stop`,
+  `holiday_blocks_must_do`, `must_do_uncovered`, `must_do_closed_every_day`,
+  `must_do_after_last_call`. The orchestrator's Stop-on-Confirmation section is now a
+  `| stage | flag | halt when |` table equal to `STOP_FLAGS`. Every stage's Stop condition row
+  names its flags, and using-tripwork points at the table instead of keeping a copy.
+- **The read-back can find a decision again.** It matches `(stage, flag, subject)` exactly,
+  but flags were free text, and the corpus recorded the same halt as
+  `unfilled_overnight_stop` in one trip and `unfilled_stop_pick` in another. The orchestrator
+  now requires the table's flag verbatim. Names already used in consumer `stage-state.yaml`
+  files (`banned_item`, `cross_source_conflict`, `far_hop`, `unfilled_overnight_stop`,
+  `lead_time_missed`) were kept. `schemas/stage-state.schema.json` is unchanged: `flag` stays
+  a free string, so existing files still validate and ad-hoc decisions (a naming fix, a
+  preference) keep their own flags.
+- **Deliverables now say when a map pin is only a district centroid.** source-verify asked
+  the agent to tell the user about every `cluster_fallback` geocode. The corpus showed that
+  never happened: trip-c schedules three such POIs and trip-b chose two
+  such lodgings, and neither deliverable mentions it. Lodging had no such instruction at all.
+  New `scripts/render/centroid.py` finds every scheduled POI and every night's lodging whose
+  `geocode.geocode_source` is `cluster_fallback`, and both `render_markdown_page` and
+  `render_html_page` append one 出發前檢查清單 line per place ("地圖座標是所在區域的中心點…"),
+  after the authored checklist, creating the section if needed. Unscheduled POIs are not
+  listed. `itinerary.yaml` is unchanged; synthesis is told not to write these lines itself.
+  LINE short text carries no checklist or maps and is untouched.
+- **Consumer corpus baseline regenerated** (`python -m tests.corpus_measure --write`). The
+  corpus changed on 2026-09-24 (trip-d re-audit: gate `fail`, 65 findings →
+  `pass`, 0). No other trip moved. The measurement is identical with and without this
+  release's code, so the whole diff is the corpus.
+
+Guards: `tests/test_stop_flags.py` reads `STOP_FLAGS` and checks the orchestrator table equals
+it, every stage row names its flags, every stage whose Stop condition asks the user is
+registered (three exempt skills listed with their reasons), and using-tripwork holds no copy.
+Each check was confirmed red by injection: a dropped table row, a dropped stage flag, an
+unregistered asking stage, a flag copied into using-tripwork. `tests/test_render_centroid.py`
+calls the renderers directly. It was also run end to end on copies of real trips: an
+unmodified northeast-coast copy renders with no disclosure; with its chosen lodging and one
+scheduled POI switched to `cluster_fallback`, each is disclosed exactly once in md and html;
+the unmodified chiayi and sun-moon-lake copies each disclose three places. The real
+`export_gate.py` passes on all of them.
+
+Migration notes: consumer `stage-state.yaml` decisions recorded under a flag not in the table
+(e.g. chiayi's `unfilled_stop_pick`, sun-moon-lake's `budget_check`) are not matched by the
+read-back, so that question may be asked once more. Renaming the flag to the table's name
+avoids it. Existing exports gain the centroid lines the next time they are re-rendered.
+
+Tests: 1161 passed with the consumer corpus mounted, 0 failed; 1141 passed + 20 corpus-gated
+skips in CI (no corpus).
+
+## 0.35.1 — skill prose states the current rule, and agrees with the code
+
+A prompt audit of the skills an agent actually reads (2026-09-25) found two contradictions with
+shipped behaviour and a layer of release history sitting on top of the rules. Prose-only: no
+script, schema or pipeline-order change.
+
+- **inter-stop-legs no longer points at a phantom phase for the rail-pass break-even.** It said
+  the precise calculation was "deferred to B3"; `cost-rollup` already computes it with
+  `scripts/cost.py::pass_break_even`. The field note and the Common Mistakes row now name that
+  owner and tell this stage to record `fare` + `pass` only.
+- **export-gate's Stop condition matches rule 15.** The Stage Contract said every `status: fail`
+  re-renders, contradicting the skill's own Output section and `scripts/next_stage.py`: a
+  `retryable: false` fail is an upstream data defect that stops and asks the user. The row now
+  states both branches.
+- **source-verify's `cluster_fallback` paragraph is rewritten as the current rule** (~600 words of
+  release history → ~130). What it keeps: a Nominatim miss defaults to D7 `unverified`; a
+  recorded `cluster_fallback` needs no proof beyond Gate 0's sourced `business_status`; and the
+  one duty that was buried — tell the user the coordinate is the district centroid, not the
+  venue's position.
+- **Version stamps, "no longer / any more" narration and bare incident tags removed** from the
+  orchestrator, source-verify, accommodation-research, itinerary-synthesis, itinerary-gate,
+  export-gate, export-artifact, cost-rollup and routing-audit skills. The orchestrator's
+  report-staleness definition now states the rule without the release provenance and the
+  one-off "527 seconds" measurement, and says accurately that `deps_stale` is not called by the
+  router. `D7` stays: it is the name of an outcome, not an incident tag.
+- **New guard `tests/test_skill_prose_hygiene.py`.** The break-even check reads the owner's name
+  from the imported `pass_break_even`; the Stop-condition check runs the real
+  `scripts/export_gate.py` over a render defect and a data defect, feeds each report to the real
+  `scripts/next_stage.py`, and requires the row to state that outcome for that `retryable` value
+  (plus a check that the two fixtures really produce both values). The history scan covers every
+  `skills/**/*.md` and `hooks/session-start`. Each part was confirmed red against the pre-fix
+  skills, and a half fix (row naming only `retryable: true`) fails the data-defect case.
+
+Tests: 1109 passed + 20 corpus-gated skips in CI (no corpus), 0 failed. With the consumer corpus
+mounted, the 10 corpus-backed guards in `test_corpus_gate.py` / `test_rederive.py` /
+`test_corpus_baseline_is_current.py` fail identically before and after this change: the corpus
+itself changed on 2026-09-24 (northeast-coast re-audit) and `tests/corpus-baseline.json` has not
+been regenerated. That is not touched here.
+
+## 0.35.0 — guards that measure what they claim: ten audit defects
+
+An adversarial audit of v0.34.0 found ten defects sharing one root cause: a guard obtained the
+pipeline state it claimed to check by hand-rebuilding an equivalent copy — a literal number, a
+hand-kept list, a manually-summed denominator — instead of calling the shipped function or
+constant. The two copies could then drift apart silently, and every real instance in this release
+did drift: a consumer fixing their own data turned eight guards red for no plugin defect; a
+schema-symmetry allowlist had grown large enough to leave two re-derivation axes with zero fields
+under guard; a staleness check had a blind spot for one of the two files it was supposed to be
+watching. This release closes all ten (TW-074–TW-083) and, because the pattern repeated across
+three releases, writes the rule itself into `CLAUDE.md` so the next instance is caught in review
+rather than discovered by audit.
+
+- **TW-074 — corpus figures stop living as literals inside tests.** Every guard that measured the
+  consumer corpus (`tests/test_corpus_gate.py`, `tests/test_rederive.py`) had its expected numbers
+  typed in by hand at the time it was written. When the consumer later fixed real data using the
+  mechanism v0.34.0 shipped, eight of those guards went red with no plugin defect anywhere — the
+  corpus had changed, not the code. `tests/corpus_measure.py` now provides `measure_corpus()`,
+  built on the same `gate()` / `classify()` / `drain()` machinery the shipped CLI uses, and every
+  migrated guard reads its expected values from `tests/corpus-baseline.json` instead of a literal.
+  **Regenerate the baseline with `python -m tests.corpus_measure --write`** whenever the corpus
+  changes — commit the regenerated diff in the same PR so a human reviews what moved.
+  `tests/test_corpus_baseline_is_current.py` fails the suite if the checked-in baseline and a fresh
+  measurement disagree, so a stale baseline cannot hide. Before trusting the rewritten guards, the
+  original P4-fold deadlock (`scripts/gate.py::poi_pool`) was re-injected by hand: the suite went
+  from 15 passed to 8 failed, confirming the baseline swap had not hollowed the guards out.
+- **TW-075 — published test counts now name the environment they were measured in.** v0.34.0's
+  entry stated "zero skipped or xfailed" for a figure that only holds with the consumer corpus
+  mounted; CI (the environment that actually gates a merge) runs without it and produces a lower
+  passed count plus a batch of corpus-gated skips — the two numbers cannot both be true of the same
+  run. `tests/test_changelog_test_count_is_qualified.py` now requires every `Tests:` line in the
+  **newest** CHANGELOG entry to say `CI` or `corpus`; historical entries are left as the point-in-
+  time record they are. A matching guard requires the README's `pytest` line to carry the same
+  qualifier.
+- **TW-076 — the schema-symmetry allowlist had grown large enough to blind two axes completely.**
+  `tests/test_schema_symmetry.py`'s allowlist — meant to exempt container-wrapper and sub-object
+  field names from the "every field `rederive_*` reads must be schema-declared" check — had grown
+  to 45 names, 12 of them ordinary record fields that had no business being exempt. The practical
+  effect: `rederive_legs` and `rederive_hops` had **zero** fields under guard, meaning TW-071's
+  original deadlock (an unschematized field silently read by a re-derivation axis) could be
+  re-injected into either axis and the full suite would stay green. Trimmed to the 9 names that are
+  genuinely container wrappers or sub-object fields (`as_of`, `candidates`, `centroid`, `clusters`,
+  `district`, `geocode_source`, `hops`, `legs`, `stops`) — two independent derivations of the
+  minimal set (one done ahead of the task, one done from scratch during implementation) agreed
+  exactly. Fields under guard go from 11 to 26 across all axes, `rederive_legs` from 0 to 8 and
+  `rederive_hops` from 0 to 7. Re-injecting TW-071's deadlock now fails immediately
+  (`assert not ['last_service_exempt']`).
+- **TW-077 — rule 15's staleness check now compares every export deliverable, HTML included.**
+  `export_gate.py` reads and judges `exports/<slug>-itinerary.html` whenever it exists
+  (`run_html_gate`), but `scripts/next_stage.py`'s rule 15 only ever compared the markdown
+  deliverable and the four `EXPORT_GATE_INPUTS` yaml files against `export-gate-report.yaml`'s
+  mtime — a re-render that left a stale HTML file (a leftover raw `<script>` tag, say) behind a
+  fresh, passing report was invisible to the oracle. No corpus trip happened to exercise the gap,
+  which is why it stayed latent through two prior releases. `scripts/orchestration.py` gains
+  `EXPORT_DELIVERABLES`, the single source for the `exports/` filename templates; rule 14 and rule
+  15 both read it instead of hard-coding the markdown filename a second time, so rule 15 now names
+  any stale deliverable, not just the markdown one. Safety check: `next_stage.py`'s routing output
+  across all four corpus trips is byte-identical before and after, including the two trips that
+  reach rule 16 and so actually exercise the new HTML comparison — no verdict moved.
+- **TW-078 — `--audit` now catches a manifest that was never bumped, not just one that lags.**
+  `bump_version.py --audit` only grepped every file for the **current** version string, so its one
+  real job — catching drift among the eight version-bearing manifests — had a blind spot for the
+  single most likely real-world failure: a manifest never added to `.version-bump.json`'s file
+  list, therefore never written by `bump()`, therefore stuck on the **previous** version forever,
+  invisible to `--audit`, `--check`, and the whole pytest gate at once. `.version-bump.json` gains a
+  `previous` field that `bump()` maintains explicitly (`cfg["previous"] = cfg["current"]` before
+  overwriting, guarded so re-running `bump()` at the same version cannot clobber it); `audit()` runs
+  a second scan, restricted to undeclared `.json`/`.toml` files, for that previous-version string,
+  reported under its own heading — restricted to manifest-shaped files on purpose, since CHANGELOG
+  and README legitimately reference old versions forever and flagging that would make every future
+  `--audit` noisy. An older `.version-bump.json` with no `previous` field skips the second scan with
+  an explicit `SKIPPED` line rather than silently doing nothing — this release's own thesis, that a
+  check which cannot fail is indistinguishable from one that passed, applies to the release tooling
+  itself. Documented limit, deliberately not built out further: this closes a **one-release**
+  detection window (a manifest stuck at 0.34.0 is caught bumping to 0.35.0; skip straight to 0.36.0
+  and it matches neither scan) — a real version history is scope this task does not take on.
+- **TW-079 — the README mermaid order guard now derives from `_CHAIN`, not a hand-kept list.**
+  `tests/test_readme_freshness.py`'s `_PIPELINE_ORDER` used to be typed in by hand, parallel to
+  `scripts/next_stage.py::_CHAIN` rather than sourced from it — the two could disagree and the
+  guard would never notice. Its first 11 entries now derive directly from `_CHAIN`; the trailing 4
+  (rule branches 12–16: `itinerary-synthesis` through `export-gate`) stay literal with a comment
+  stating why — there is no importable sequence constant covering that stretch. No new test was
+  needed: `test_tw060_mermaid_stage_order_matches_pipeline` becomes load-bearing simply by having
+  its comparison target now be a real derivation instead of a copy. Verified both directions:
+  swapping `calendar-check` and `seasonal-advisory` inside `_CHAIN` now reds that test (it stayed
+  green before this fix), and the reverse — editing the README's stage order without updating
+  `_CHAIN` — reds it too.
+- **TW-080/081/082 — three specific stale claims, plus a wider grep-driven pass.** A CHANGELOG passage
+  described the `superseded` bucket's routing using only two of the three `business_status` shapes
+  that route there (bare-string, absent), silently omitting the third (a dict-shaped but unusable
+  value) while phrasing the pair as exhaustive — corrected to name all three, worded to match the
+  code's own reason strings (TW-080). `scripts/rederive.py`'s `run_rederivation` docstring (and a
+  duplicate in `tests/test_rederive.py`) claimed `run_gate` "does not forward" `pois` — false since
+  v0.34.0 Task 4, which made `scripts/gate.py:333-335` pass `pois=pois` unconditionally; the false
+  claim and its dependent consequence were deleted, the still-true part of the surrounding rationale
+  kept (TW-081). README's `gmaps_place_id` shape-check line cited an all-corpus count (86)
+  inconsistent with the denominator every other figure in its own section used, and both numbers
+  were additionally stale; now states both denominators explicitly, measured live: four
+  schema-clean trips = 64, all seven corpus trips = 99, both exactly 27 characters (TW-082).
+  A follow-up grep-driven pass over `tests/`, `scripts/`, `skills/` for docstrings/comments
+  carrying a numeric claim near corpus-shaped language — not another reactive one-site fix — found
+  **18 more present-tense corpus figures across 11 files**, of which **4 were outright false**
+  against the live corpus, not merely stale: an "0 unresolved" figure recorded as 5 (a full
+  inversion, the same shape TW-074 exists to prevent); a "six real trips" denominator that is now
+  seven; a "6 legs, all kind-absent" claim now 7 legs (and no longer all kind-absent, since TW-065
+  legalized `kind: home` on some of them); and a "two excluded trips" comment now three. Every
+  category-(a) hit (a live, unbound, present-tense corpus claim) was de-numbered in favor of
+  pointing at `tests/corpus-baseline.json` or a named commit/task/release anchor; bounded historical
+  records, synthetic-fixture counts, and code-structure counts were left untouched. A final pass
+  re-examined the AI-tone calibration family (~15 sites previously treated as one bounded-historical
+  unit) **per site** rather than by blanket rationale, and found three of those specific claims were
+  themselves outright false — a cited "31 of 32" em-dash hit and a markdown-bold checklist
+  attribution that no longer exist in the live corpus file they named, plus one propagated copy of
+  the same false attribution — each rebound explicitly to v0.33.0, the release whose own CHANGELOG
+  entry carries the point-in-time figures, rather than merely softened. **This sweep was not
+  exhaustive, and the two paragraphs above should not be read as a completeness claim**: its declared
+  scope was `tests/`, `scripts/`, `skills/`, and a later review round (v0.35.0 review wave 2) found
+  at least six more sites carrying the identical defect outside and inside that scope — one inside
+  `tests/` itself (`tests/test_verify.py`, the verbatim twin of the `scripts/verify.py:308` site this
+  same sweep closed) plus five in `README.md`, which the sweep never walked at all. In a release
+  whose thesis is that published claims must be measured, publishing an unqualified completeness
+  claim about the sweep itself was the identical defect one level up.
+- **TW-083 — the rule this release exists to demonstrate, now written down.** `CLAUDE.md` gains
+  "Guards must call their subject, not rebuild it": a guard obtains pipeline state by **calling**
+  the shipped function or constant (`scripts/gate.py::poi_pool`, `scripts/next_stage.py::_CHAIN`,
+  `scripts/orchestration.py::EXPORT_DELIVERABLES`, `tests/corpus_measure.py::measure_corpus`, and
+  siblings), never by hand-assembling an equivalent; where no importable source exists, a literal is
+  allowed but must say why in a comment; and before trusting a new guard, inject the bug it names
+  and confirm it goes red. The rule cites three real instances across three releases as evidence,
+  not hypotheticals: v0.33.0's C1 (a corpus guard hand-built `by_id` from 58 rows while the shipped
+  gate used 63), v0.34.0's inert re-derive guard (a default fixture that folded nothing, staying
+  green through the exact bug it named), and this release's own TW-074/TW-076/TW-079.
+- **v0.35.0 review wave 2 (G1–G8): a scoped re-review of wave 1 found it had both missed sites and
+  shipped two assertions with zero added detection.** `tests/test_verify.py`'s TW-062
+  safety-argument docstring carried the verbatim twin of the `scripts/verify.py:308` claim wave 1's
+  F2 already closed — the same "Measured: 5 corpus records" shape, false three ways on inspection
+  (of the 11 `cluster_fallback` POIs on the four schema-clean trips, 10 already had independent
+  existence proof; only `trip-c/taocheng-guwei` has neither, and its `business_status` is
+  currently unusable, so 0 records flip on the new proof alone today; the named sun-moon-lake `d2-6`
+  is also the wrong population — a LODGING candidate, never reachable through this POI-only
+  function) — de-numbered the same way (G1). `scripts/verify.py` and README both pointed the reader
+  at `python -m tests.corpus_measure --write` to answer a question that function does not measure;
+  both now state the predicate precisely and say plainly there is no mechanical measurement instead
+  of trading one false claim for an unfollowable instruction (G4). Five more corpus figures in
+  README were wrong against the live corpus — four in the v0.34.0 paragraph (POI-axis
+  found/superseded, combined examined/superseded; only "found 18" checked out) and a set in the
+  v0.33.0 paragraph directly contradicting a docstring wave 1 itself wrote
+  ("this corpus has ZERO verdicts_match mismatches left on any axis") — both de-numbered, pointing
+  at `tests/corpus-baseline.json`'s `gate_aggregate` / `rederive_axes` (G2, G3). Two of wave 1's own
+  F-numbered fixes added no detection of their own: F4's chiayi-emptiness check is logically implied
+  by an assertion already present ~150 lines above in the same file (corrected above); F10's
+  `drain_rounds` comparison cannot detect a broken `drain()` because both sides of the equality are
+  computed by that same helper — both proved by injection, both now honestly scoped (F4's routing
+  half moved to a corpus-independent test that the injection DOES catch; F10 is relabeled a
+  hand-edited-baseline diagnostic, not drain() coverage) (G5, G6). README's test-count line
+  (`CI 1075 個測試通過`) had no mechanical pin and was guaranteed to drift the moment any test
+  landed — including this commit's own nine new tests — so it is de-numbered rather than
+  re-typed (G7).
+
+**What stays out, recorded rather than silently dropped:**
+
+- A **pre-existing flake**, not introduced by this branch: `tests/test_e2e_mechanized_pipeline.py::test_full_walk_in_new_order`
+  fails intermittently (measured 1/90 and 2/30 across two points on this branch, roughly 1–7%) on the
+  test's own step-by-step `assert got["next"] == expected` walk against `EXPECTED_WALK`. Which step,
+  and why, is not established — no failing run was ever captured with `next_stage.py`'s `reason`
+  string attached (the assertion used to report only the step name), and a follow-up 220-run sample
+  at HEAD reproduced zero failures. `tests/test_e2e_mechanized_pipeline.py::_next` now returns the
+  full `{next, reason}` dict so the next occurrence is diagnosable without another blind rerun hunt.
+  An earlier draft of this entry named the cause as "an mtime race in rule 13's staleness comparison"
+  — that was an inference, never measured, and is withdrawn here rather than repeated. Root-causing
+  the actual signature is out of scope for the ten defects here, surfaced for a future release
+  instead.
+- The schema-symmetry guard's failure message names one cause ("the allowlist absorbed every read")
+  when an empty coverage set can come from either that or a schema loosened to
+  `additionalProperties: true` — reproduced by flipping `routing.schema.json`'s `hops` items to
+  permissive and watching the allowlist-shaped message fire with the allowlist untouched. The new
+  ceiling test (`test_the_allowlist_does_not_blind_an_entire_axis`) also only asserts non-empty
+  coverage, not a minimum retained fraction — re-adding 6 of `rederive_hops`'s 7 checked names still
+  passes it. Both recorded for a future pass, not fixed here.
+- `EXPORT_DELIVERABLES`, `GATE_INPUTS`, and `EXPORT_GATE_INPUTS` are each single-sourced inside
+  `scripts/orchestration.py` for `next_stage.py`'s own staleness comparisons only; the CLI that
+  actually reads each set of filenames still hand-lists them a second time with its own literals.
+  `export_gate.py`'s `main()` (plus five test fixtures) re-builds `EXPORT_DELIVERABLES`'s and
+  `EXPORT_GATE_INPUTS`'s filenames with its own f-strings/`opt()` calls, and `scripts/gate.py`'s
+  `main()` hand-lists the same nine artifacts `GATE_INPUTS` names, across its two required loads and
+  seven `opt()` calls. Renaming any of these filenames would still silently reproduce TW-077's shape
+  under a new name. Next-version follow-up: have each CLI import the constant it currently
+  re-lists by hand.
+- `test_no_failure_class_routes_to_a_stage_that_cannot_write_it[trip-c]` used to iterate an
+  empty failure list (the consumer's chiayi trip is clean today) and so execute zero assertions while
+  still reporting pass — precisely the "a check that cannot fail is indistinguishable from one that
+  passed" shape this whole release is about. Wave 1 fixed it with a two-line addition: assert the
+  failure list's emptiness against `tests/corpus-baseline.json`'s per-trip `total` before the loop.
+  **A second review round (G5, v0.35.0 review wave 2) found that fix added no detection of its own**
+  — the equality is logically implied by an assertion already asserted ~150 lines above in the same
+  file, and neither one exercises what the test's own name claims (routing). Proof: injecting a bug
+  that silently swallows the whole `poi_no_hours` failure class and regenerating the baseline left
+  every test in the file green, the emptiness assertion included. Fixed properly this time: the
+  ROUTING check moved to
+  `tests/test_orchestration.py::test_every_corpus_measure_class_routes_to_the_stage_that_can_write_it`,
+  parametrized over `tests/corpus_measure.py`'s `CLASSES` instead of over `CORPUS_TRIPS` — every
+  message it checks is built by calling the real production re-derivation entrypoint against a tiny
+  synthetic fixture, never a hand-typed literal, so it is corpus-independent (runs in CI, unlike its
+  predecessor) and the same swallow-a-class injection now reds it directly. What remains in
+  `tests/test_corpus_gate.py` (renamed
+  `test_a_trips_failure_list_is_empty_only_when_the_baseline_says_so`) keeps only the genuinely
+  corpus-coupled half: a clean trip's real failure list is really empty, a dirty one's really
+  matches the baseline.
+- `scripts/gate.py`'s two-trip id-collision note (POIs and lodging candidates sharing an id within
+  `trip-b` and `trip-e`) was independently recomputed against all seven live trip
+  directories during the doc sweep above and still matches exactly; left as an open, id-anchored
+  v0.35.0 follow-up note, unchanged.
+
+Tests: 1104 passed with the consumer corpus mounted, 0 failed; 1084 passed + 20 corpus-gated skips
+in CI (no corpus). (Review wave 1 added 2 tests to the original 1093/1073 figures — F1's rule-14
+required-deliverable test and F12's shipped-`.version-bump.json` `previous` guard. Review wave 2
+(G5) added 9 more — `tests/test_orchestration.py`'s corpus-independent, CLASSES-parametrized
+routing-invariant test, which is *why* the corpus-gated skip count holds at 20 rather than growing:
+the check it replaces no longer needs the consumer corpus to run at all. No count regressed at
+either wave.) Every corpus number this entry publishes remains independently reproducible by anyone
+with the consumer repo, which v0.34.0's entry could not claim.
+
+## 0.34.0 — the POI verdict axis, and the two channels it needed
+
+v0.33.0 shipped five re-derivation axes — legs, hops, cost, the closing-buffer
+rule, lodging name/geocode provenance — and omitted the one gatekeeping the
+plugin's own iron rule, **only verified flows downstream**: nothing re-examined
+a POI's own `verify_status`. Three gates changed shape across 0.32.0–0.33.0
+(Gate 0's sourced-object `business_status`, Gate 2b's refusal on an absent
+`resolved_name`, Gate 2c's existence proof) and not one recorded `verify_status`
+was ever re-checked against the rules that now govern it. This release closes
+that gap (TW-070) and ships the two channels the new axis needed to exist
+without producing failures no consumer could fix with data (TW-071, TW-072),
+plus a low-severity input-tolerance fix found alongside them (TW-073).
+
+- **The sixth axis (TW-070): `verdicts_rule_current`, and three buckets because
+  a superseded verdict is not a wrong one.** `scripts/rederive.py::rederive_pois`
+  re-derives every `verified-pois.yaml` record's `verify_status` and reports it
+  as one of three FIRST-APPLICABLE buckets, in this order, so one record
+  produces at most one failure and names the one thing to fix first:
+  `superseded` (the recorded verdict cannot stand because the rules that
+  produced it were superseded — today: a `business_status` that is not the
+  sourced `{status, source_url, as_of}` form at all (bare-string or absent,
+  superseded by TW-063's object form), or one that IS that dict shape but
+  unusable — an unrecognised status, a blank `source_url`, or an unparseable
+  `as_of`), `missing` (an input
+  needed to recompute is absent — today: no `resolved_name` recorded at all),
+  `mismatches` (every input is present and the verdict does not follow). A
+  bare-string `business_status` is deliberately **not** folded into `missing`:
+  it is not an absent input and not a wrong verdict, it is a verdict produced
+  under rules this release supersedes, and reporting it as "missing" would
+  misdescribe what the consumer needs to do. Measured against the four
+  schema-clean corpus trips through the shipped function, not estimated:
+  **found 127, superseded 105, 0 missing, 0 mismatches** — the last two read
+  zero because `superseded` is first-applicable, not because those buckets are
+  untested (both have dedicated fixtures; the corpus alone cannot exercise
+  them). 105 is not 100: the 5 recorded-`conflicting` POIs also change verdict
+  under current rules, on top of the 100 recorded-`verified` ones; the 22
+  unchanged are the POIs already correctly `unverified`. `rederive_lodging`
+  gains the identical Gate 0 half in the same release (see below): **found 18,
+  superseded 18** — every lodging candidate in the corpus, because
+  `accommodations.schema.json` could not even carry a sourced `business_status`
+  before this release. Combined, the `verdicts_rule_current` check reports
+  **examined 145, superseded 123**.
+- **Most of this flood is not new damage — but not all of it, and the parts
+  differ.** The 123 decomposes exactly three ways, measured by each record's
+  RECORDED verdict:
+  - **100 — already announced.** 0.32.0 published that re-running
+    `source-verify` demotes **100 of 100** currently-`verified` POIs (see that
+    release's Migration section). This axis does not create that consequence;
+    it makes a consequence that was already true the moment those verdicts
+    were written **visible at gate time**, before a consumer discovers it the
+    hard way by re-running `source-verify` and watching a finished trip empty
+    out.
+  - **5 — newly surfaced, same root cause.** Five POIs recorded `conflicting`
+    also change verdict under current rules. 0.32.0's figure counted only the
+    `verified` ones, so these were never in the published number even though
+    the cause is identical.
+  - **18 — newly surfaced, and it could not have been announced.** Every
+    lodging candidate in the corpus. This is not an oversight in 0.32.0's
+    count: `accommodations.schema.json` had no `business_status` field at all
+    until this release, so there was no sourced Gate 0 for a lodging verdict
+    to be superseded *from*. The demotion becomes statable only in the same
+    release that gives the field somewhere to live — which is why the 0.33.0
+    entry recorded "Gate 0 stays open, deferred to 0.34.0" rather than a
+    count.
+- **The clock is anchored to the artifact, not to wall-clock** — same
+  precedent as the R5 deferral in the 0.33.0 CHANGELOG. `rederive_pois` (and,
+  since Task 6, `rederive_lodging`'s Gate 0 half) asks "was this verdict
+  correct when it was written", reading the record's own
+  `business_status.as_of` era. `OPERATING_MAX_AGE_DAYS` is 90, so a wall-clock
+  read would turn a trip's gate red 91 days after verification with zero
+  artifact change — the exact calendar-driven class 0.33.0 cited when
+  deferring R5. A fix-round leak closed the same class one gate deeper: Gate
+  2c's `has_existence_proof` originally read wall-clock regardless, so a
+  stale `as_of` could flip the re-derived verdict even though Gate 0 itself
+  agreed with the recorded one; `today` now threads into it from the same
+  anchor.
+- **Gates 3a/3b are not re-derived for POIs.** The artifact records neither
+  `in_claimed_region` nor `conflict_detected` — both are computed by the agent
+  at research time and never written back — so the permissive values are
+  passed and a region mismatch or cross-source conflict is invisible to this
+  axis. Recording them was considered and rejected: each new agent-authored
+  field is another self-attestation, the defect family this whole programme
+  exists to shrink.
+- **TW-071 — a POI can finally record `resolved_name`.**
+  `verified-pois.schema.json` was `additionalProperties: false` with no such
+  field, while `accommodations.schema.json` already had it — Gate 2b's own
+  input was schema-illegal to record on a POI, which would have made every
+  re-derived Gate-2b failure permanently unfixable with data the moment
+  `rederive_pois` shipped. Callers now pass the geocoder's `display_name` or
+  the literal `NO_RESULT` sentinel (mirroring `verify.NO_RESOLVED_NAME`) — an
+  absent field still means "nobody looked", distinct from "the lookup ran and
+  found nothing". The same commit adds a **discovered, not hard-coded**
+  schema-symmetry ratchet (`tests/test_schema_symmetry.py`): every
+  `rederive_*` function found in `scripts/rederive.py` must be OWNER-mapped to
+  the schema it reads records from, or explicitly EXEMPT with a stated reason
+  — so a future axis is enrolled in the check the moment it is written,
+  instead of the scan silently staying blind to it.
+- **TW-072 — Gate 2c accepts Gate 0's evidence, and the keyless asymmetry
+  dissolves by construction.** Gate 2c's stated job is existence — "something
+  independent of the coordinate says this place exists" — and a dated, sourced
+  first-party statement that the venue is operating already is that.
+  `has_existence_proof` now accepts a third proof: a `business_status` in the
+  same sourced object form Gate 0 requires. Gate 0 already guaranteed two
+  keyless-reachable routes (a dated official/social statement; a phone
+  confirmation recorded as `tel:`); whichever one a keyless consumer took now
+  satisfies Gate 2c too, so `verify_status` stops being a function of whether
+  the machine happens to carry an API key. `gmaps_place_id` stays an accepted
+  proof and gains a minimum-length shape check (measured on the **four
+  schema-clean trips**, the same denominator every other figure in this entry
+  uses: 57 POIs carry one, every one exactly 27 characters, none shorter than
+  8 — the floor demotes nothing real. Across all six corpus trips it is 86,
+  also every one exactly 27; the conclusion is identical on either
+  denominator).
+  **That shape check has no production reader as of this release.** Its only
+  caller is `has_existence_proof`, whose own production callers disappeared
+  when Gate 2c was retired (below) — so the floor is currently **inert**,
+  exercised by `tests/test_verify.py` and nowhere else. It is documented here
+  rather than quietly rewired: the one place that still reads
+  `gmaps_place_id` in production is
+  `scripts/render/gmaps_links.py::maps_url`'s deep-link refinement, and
+  wiring the check into it is new behaviour that needs its own red→green
+  cycle. Tracked for the next version, deliberately not smuggled into this
+  one.
+- **TW-073 — `operating_from_status`'s `today` now tolerates an ISO string.**
+  `as_of` already went through `_parse_iso`; `today` did not, so passing a
+  string raised `TypeError` inside the same function. Now
+  `ref = _parse_iso(today) or date.today()`. No production caller was
+  affected (`source_verify_run.py` always passed a `datetime.date`); this
+  closes a tripwire for any future caller such as a reproducible-testing
+  `--today` flag.
+- **Gate 2c was RETIRED — subsumed by Gate 0, not fixed.** Accepting a sourced
+  `business_status` as an existence proof has a consequence beyond closing the
+  keyless asymmetry: it makes Gate 2c **unreachable** on both paths. A POI (or,
+  once lodging gained the same field, a lodging candidate) that clears Gate 0
+  necessarily already carries a proof identical to what Gate 2c would ask for,
+  read through the identical field; one that Gate 0 refuses never reaches Gate
+  2c at all. This was measured and confirmed — including for a stale `as_of`,
+  after the wall-clock leak above was closed — before the check was deleted
+  from `classify_candidate` rather than left in as dead code that could never
+  fire. **The retirement itself changes no verdict**: `Gate 0 ∧ Gate 2c ≡
+  Gate 0`, because every record Gate 2c could still be asked about has already
+  satisfied it through the identical field. A release whose whole point is
+  closing "a check that cannot fail is indistinguishable from a check that
+  passed" must not ship an unreachable gate inside itself.
+- **TW-062's shape IS now permitted, and TW-072 is what permits it — not the
+  retirement.** Earlier drafts of this entry claimed the retirement "does not
+  reopen TW-062". Half of that claim is true and the other half is false, and
+  the two were run together. **True:** the *evidence vocabulary* narrowed —
+  Gate 0 demands a *dated, sourced* statement, strictly more than the retired
+  check ever accepted (an undated official link, or a bare `gmaps_place_id` of
+  plausible shape, used to satisfy Gate 2c; neither satisfies Gate 0).
+  **False:** the *outcome*. A place whose only evidence is a sourced
+  `business_status` — no official source, no `gmaps_place_id` — now reaches
+  `verified` while its coordinate is still a district centroid, which is
+  precisely TW-062's shape. That follows from TW-072 making a sourced
+  `business_status` an existence proof in its own right: Gate 2c, had it been
+  left in place, would have *passed* these records too. The retirement is
+  verdict-neutral; the loosening is TW-072's.
+  Measured across the corpus, five records do this once migrated to the sourced
+  form this release asks for — four `cluster_fallback` POIs in `trip-c`
+  (`penshui-turkey-rice`, `taocheng-guwei`, `shanzhai-restaurant`,
+  `atian-goose`) and one lodging candidate in `trip-b` (`d2-6`,
+  the single record the retired check ever caught on real data). All five flip
+  `has_existence_proof` from `False` to `True` on the strength of the new
+  proof alone. Whether a centroid coordinate paired with a real operating
+  statement deserves `verified` is the **coordinate-trustworthiness** question
+  recorded under *What stays out* below — this version does not answer it.
+- **Lodging gets a real Gate 0.** `accommodations.schema.json` gains
+  `business_status` — the identical sourced object form, copied verbatim so
+  the two schemas cannot disagree in detail — closing the 0.33.0 deferral (
+  "Gate 0 stays open, deferred to 0.34.0"). `rederive_lodging` re-derives it
+  for every candidate; a fix-round defect (M1) in the first draft is worth
+  recording on its own: `operating is not False` treated "not established" as
+  operating, the exact "not established defaults to open" shape TW-005/P1
+  already closed for POIs, and it made the anchored-clock fixture pass for the wrong
+  reason (a stale record, read wall-clock, degrades to `None`, and the
+  fail-open then silently matched it as operating — leniency, not the
+  calendar-driven redness the anchor was believed to prevent). Closed by
+  making an unparseable/unsourced `business_status` land in `superseded`
+  unconditionally, never fall through to `classify_candidate` as an implicit
+  `True`.
+- **The one wrong citation in the consumer report, corrected.**
+  the re-gate defect report (kept out of the repo) (committed with this
+  release, per this repo's convention of shipping the report alongside the
+  release that closes it) states that `gmaps_place_id` is backfilled by an
+  export-stage `scripts/gmaps_media.py`. That module does not exist:
+  `gmaps_place_id` is read in exactly two places
+  (`scripts/verify.py::has_existence_proof` — **not** "Gate 2c": that gate is
+  retired, and this function is now the test-only primitive it used to back,
+  so naming the read site after the gate would describe a caller that no
+  longer exists — and `scripts/render/gmaps_links.py::maps_url`'s deep-link
+  refinement, the sole surviving PRODUCTION reader) and
+  **written by no plugin code at all** — it is an agent-authored field, recorded by hand per
+  `skills/source-verify/SKILL.md`'s instruction only when the Places API route
+  was actually used. That is precisely why TW-072 gave it a shape check
+  instead of trusting it as machine-verified.
+- **TW-062's `verified-pois.schema.json` `allOf` constraint leaves the
+  roadmap — SUPERSEDED, not deferred again.** It was held back so that
+  existing trips carrying the shape (a `cluster_fallback` geocode paired with
+  `verify_status: verified` and no existence proof) would get a routed,
+  fixable gate failure instead of a hard `validate_artifact` exit 1. The sixth
+  axis's `superseded` bucket **is** that routed failure. Shipping the schema
+  constraint on top would let the harsher check pre-empt the gentler one — a
+  schema-invalid artifact fails `validate_artifact` before the gate ever runs
+  — so the routing message this whole release is built around would never
+  once be emitted. It is dropped from scope for that reason, not deferred to
+  a future version a second time.
+- **What stays out:** R5 (`lead_time_missed`) and R6 (`in_peak`)
+  re-derivation; re-deriving `reception_ok` (lodging's counterpart of the
+  closing-buffer check); wiring `deps_stale` into the router; `export_gate`
+  rebuilding its P4 lodging fold with the opposite precedence; `resolve_place`'s
+  five-request burst inside one pace interval; the hand-maintained
+  `GATE_INPUTS` / `EXPORT_GATE_INPUTS` mirrors; and the
+  coordinate-trustworthiness question this release's own design notes raise
+  and explicitly decline to answer — a hop or a candidate can match its
+  recorded verdict and still be measuring against a coordinate TW-062 already
+  showed can be a fiction.
+
+### Migration
+
+- **60/60 consumer artifacts across the four clean corpus trips still pass
+  `validate_artifact`** — every schema change this release makes
+  (`resolved_name`, lodging `business_status`) is additive, so nothing on disk
+  needs to change to stay schema-valid.
+- **Re-gating an existing trip will report far more failures than before**,
+  concentrated entirely on `verdicts_rule_current`: 105 of 127 POI records and
+  all 18 lodging candidates in the corpus. As decomposed above, **100 of those
+  123 are 0.32.0's already-published demotion**, surfaced at the gate instead
+  of discovered by re-running `source-verify` cold; the other 23 are newly
+  surfaced — 5 POIs recorded `conflicting` (same cause, outside 0.32.0's
+  `verified`-only count) and 18 lodging candidates (which no earlier release
+  could have counted, since lodging had no `business_status` field to be
+  superseded from). Both
+  failure classes route automatically: a POI verdict fix routes to
+  `tripwork:source-verify` (the only stage that writes `verified-pois.yaml`),
+  a lodging one to `tripwork:accommodation-research`.
+
+Tests: 1047 → 1082 with the consumer corpus mounted; 1063 pass + 19 corpus-gated skips in CI (no corpus).
+
+## 0.33.0 — verdict re-derivation + AI-tone gate + TW-068/TW-069
+
+0.32.0 closed the self-attestation defect **at write time only**: a fixed value could
+no longer be typed past a gate, but nothing re-checked a verdict already sitting in a
+finished artifact. The root cause carried into this release too — pure decision
+functions (`classify_leg`, `classify_hop`, `sum_costs`, the closing-buffer rule)
+existed and nothing ever ran them against a recorded verdict to see whether the two
+still agreed. This release closes that gap for four of the six candidate checks, adds
+a mechanical AI-tone gate, gives `source-verify` and the markdown renderer the batch
+entrypoints they never had (TW-068, TW-069), and gives lodging and Gate 2c the closure
+0.32.0 left open.
+
+- **Re-derivation, for four of six candidate checks (R1–R4).** `scripts/rederive.py`
+  re-runs `classify_leg` over `legs[]`, `classify_hop` over `routing.hops[]`,
+  `sum_costs` over `cost.yaml`, and the closing-buffer rule over every scheduled row,
+  then compares the fresh verdict against the one recorded in the artifact.
+  `verdicts_match` measured **zero** mismatches across the four schema-clean consumer
+  trips (29 records) — the mechanism costs nothing when the data is already correct.
+  It is also **structurally blind** by design to shapes it cannot even attempt to
+  compare — a non-drive leg with no `depart` recorded, for instance, since
+  `classify_leg` cannot re-derive a `missed_last_service` verdict without one. Only
+  the second check, `verdicts_rederivable` — which asks "could this verdict even be
+  recomputed from what the artifact kept?" — sees that; `verdicts_match` only ever
+  compares two verdicts once both exist.
+  Re-derivation proves **internal consistency, never truth**: `classify_hop`'s
+  `min_plausible_mins` runs over cluster centroids, and TW-062 already showed those
+  centroids can themselves be fictions (a POI's coordinate borrowed from a neighbour).
+  A hop can match its own recorded verdict and still be measuring distance between two
+  points that are not where the trip actually goes.
+  `gate.py` now fails the gate outright when `legs.yaml`, `routing.yaml` or `cost.yaml`
+  is absent — previously it passed. This is deliberate (an absent artifact means the
+  pipeline ran out of order) but it is a **breaking change for every existing trip
+  directory**, not only the two already known to be schema-dirty. See Migration below.
+- **A mechanical AI-tone gate (`no_ai_tone`).** `scripts/gate.py` now scans canonical
+  itinerary text (checklist + every row) via `scripts/text_hygiene.py`. Measured
+  against the five canonical itineraries that have one: **32 hits, 32 true positives,
+  zero false positives** — but all 32 are the em-dash and markdown-bold detectors
+  (31 + 1); the em-dash one is deliberately narrow (the corpus contains 28
+  non-flagged dash-adjacent characters — 22 U+2013, 6 U+FF5E — in legitimate date
+  ranges and opening-hours notation, and widening the pattern to catch them would
+  fail every one of those lines). The other **five word-list lexicons — slop words,
+  sentence templates, promo clichés, meaning stamps, chatbot residue — measured zero
+  hits on the same five itineraries: 0 true positives and 0 false positives.** They ship as
+  **regression locks, not fixes**: nothing in the shipped corpus currently trips
+  them, so their job this release is to stay silent and catch a future regression,
+  not to have found anything today. A sixth candidate lexicon, `rule_of_three`, was
+  measured too (21 hits, **21 false positives**) and **dropped** — it is
+  unmechanizable on real Chinese travel prose, not merely imperfect.
+- **`source-verify` gets the batch driver it never had (TW-068).** `scripts/source_verify_run.py`
+  runs the existing per-candidate decision logic (`verify.py`) over a whole
+  `candidates.yaml`, replacing a pattern where every consumer hand-rolled their own
+  driver (one hardcoded a 9-entry official-domain allowlist). Running it exposed a
+  latent Gate 0 defect: `candidates.schema.json`'s `business_status` only permitted the
+  bare-string form, which `verify.py` treats as self-attested and **never lets pass** —
+  so no schema-valid `candidates.yaml` could ever produce a single verified POI through
+  this driver. `candidates.schema.json` is widened to the same sourced object form
+  `{status, source_url, as_of}` that `verified-pois.schema.json` already carries
+  (purely additive; a bare string stays schema-valid, still self-attested, still
+  `unverified`).
+- **The markdown renderer gets a page-level entrypoint, and `contingency` gets a
+  container (TW-069).** `render_markdown_page` (`scripts/render/markdown.py`) replaces
+  every consumer's hand-rolled per-trip render script (one silently rendered a missing
+  lodging POI as `**宿**：<id>` with no link). Synthesis now writes 備案 into a
+  `contingency` block, mirrored into the HTML checklist section the same way the
+  existing checklist is. A new gate check, `home_legs_rendered`, closes the gap where a
+  home leg (`legs[].kind: home`) could be fed into cost and feasibility but never
+  actually appear in the rendered itinerary: an itinerary row may now carry an optional
+  `leg_index` linking it back to `legs[]`, and the check fails if a recorded home leg
+  has no row pointing at it. Building the fixture for that check uncovered
+  `export_gate._find_rows` fighting the new markdown page in both directions, and both
+  are fixed: the `**宿**：` line was not `|`-prefixed, so a bookable lodging POI
+  missing its official link silently passed the export gate; the new cost table's
+  `|`-rows carried POI-name substrings, so a bookable POI could get a spurious "row
+  missing official source link" failure even when the link was present elsewhere in
+  the deliverable.
+- **Photo enrichment gets an owner (`scripts/photo_adapter.py`'s CLI, `main`).**
+  Dogfood measurement: five existing trips carry **78 hand-written `photo_source: google`
+  media entries**, every one bypassing `license_allowed` (the adapter's own hard
+  license gate), because nothing ever ran the adapter's decision logic against
+  hand-authored side-files. All five deliverables were already recorded
+  `distributable: false` by `export-gate` — and every one of those five reports still
+  read `status: pass`, so the pipeline shipped them cheerfully. The CLI now runs
+  `build_media` + `write_media_sidefile` end to end and validates its own output
+  against `media.schema.json` before writing, closing the exact "self-check passes
+  because nothing checked the right schema" shape this release exists to close
+  elsewhere.
+- **Exactly which half of `_DEPS` is live.** `scripts/orchestration.py`'s `_DEPS` table
+  (which artifact each skill's Stage Contract declares as Input) and its drift guard
+  are **live and mechanically enforced**: `tests/test_deps_table.py` re-parses all 11
+  producing skills' Input rows and fails the moment the table and the documentation
+  disagree, in both directions (verified by live mutation). The **content predicate
+  `deps_stale` is built, unit-tested, and deliberately NOT wired into the router** —
+  `scripts/next_stage.py` imports six names from `scripts/orchestration.py`
+  (`ADVISORY_PROJECTION`, `GATE_INPUTS`, `EXPORT_GATE_INPUTS`, `candidates_stale`,
+  `input_fingerprint`, `route_gate_failures`) and `deps_stale`/`_DEPS` are not among
+  them. The measured reason is data, not machinery: **zero artifacts across all six
+  corpus trips record `input_fingerprints`**, so the fail-open predicate would return
+  an empty list for every edge and could not be validated against anything real. The
+  producing side is NOT missing — `skills/travel-advisory/SKILL.md` already instructs
+  recording `input_fingerprints["trip-brief.yaml"]`, `schemas/advisory.schema.json`
+  already declares the field, and rule 11 in `scripts/next_stage.py` already performs
+  `deps_stale`'s comparison inline for that one edge, over the same
+  `ADVISORY_PROJECTION`. So `deps_stale` is the general form of a check the router
+  already runs in one hand-rolled place; 0.34.0 should unify the two rather than grow a
+  second copy (a note in `scripts/orchestration.py` says so beside the function).
+  `skills/orchestrator/SKILL.md` already
+  describes it as "consumed by future stages"; that framing is accurate and this
+  release does not change it. What ships live and enforced is the **report tier**:
+  rules 13 and 15 (`scripts/next_stage.py`) now compare `gate-report.yaml` /
+  `export-gate-report.yaml` against **every** artifact the corresponding CLI actually
+  opens (previously a narrower, hand-maintained list), so a report can no longer look
+  fresh while one of its real inputs changed underneath it.
+
+### The three items 0.32.0 published as "Deliberately still open"
+
+- **Gate 2c's optional trigger — CLOSED.** Omitting `geocode.geocode_source` is now an
+  outright refusal (`unverified`), not a silent skip. Measured: 19 of 127 real POIs
+  omitted the field; **none of the 19 was `verified`**, so closing this demotes no
+  existing artifact.
+- **Lodging — Gates 2b and 2c CLOSED; Gate 0 stays open, deferred to 0.34.0.**
+  `itinerary-gate` now re-derives every `accommodations.yaml` candidate's
+  `verify_status` for name-match and geocode-source provenance, so a gate-report
+  failure naming a hotel is new output this release. Gate 0 (operating status) is
+  **not** closed for lodging: `accommodations.schema.json` has no `business_status`
+  field at all, and adding one means redoing TW-063's design for hotels rather than
+  reusing it — that is 0.34.0's work. The measured defect this closure did find in
+  delivered data: `trip-b` candidate `d2-6` is a district centroid with
+  **no existence proof**, and is recorded `verified`. Gates 3a/3b (region match /
+  conflict detection) are not re-derivable for lodging at all today — the artifact
+  records neither `in_claimed_region` nor `conflict_detected`.
+- **`classify_hop`'s `km`/`mode` omission — CLOSED at the artifact layer.** A hop
+  recording no `mode`, or an endpoint with no resolvable cluster centroid, is now a
+  `verdicts_rederivable` failure that routes back to `routing-audit`. The legacy
+  two-argument `classify_hop` call form stays legal at the function layer,
+  deliberately — this release closes the gap where an artifact could omit the
+  provenance fields, not the function's own back-compat surface.
+
+### Migration — read this before re-gating an existing trip
+
+- **Re-gating the four existing consumer trips reports 125 gate failures in total** —
+  26 / 31 / 32 / 36 for yilan / sun-moon-lake / chiayi / northeast-coast. Measured
+  through the shipped `run_gate` over all five re-derivation axes at once, not through
+  a subset:
+
+  | Axis | Examined | Failures |
+  |---|---|---|
+  | `verdicts_rederivable` | 103 verdict-bearing records | 94 |
+  | `verdicts_match` | 47 records with complete inputs | **1** |
+  | `no_ai_tone` | (not a re-derivation axis) | 30 |
+
+  The single `verdicts_match` failure is real and is named in the lodging bullet above:
+  trip-b's candidate `d2-6`, a `cluster_fallback` centroid recorded
+  `verified` with no existence proof. Everything else is **provenance that was never
+  recorded, not verdicts that were wrong**, and the 94 split cleanly: 19 hops with no
+  `duration_source` (they predate TW-066), 56 scheduled rows with no recorded
+  `closing_status` or no `hours.close`, 18 lodging candidates with no `resolved_name`
+  (the field is new in this release) and 1 with no `geocode_source`.
+
+  An earlier draft of this section quoted **19 failures on 29 records**. That figure was
+  measured before the closing and lodging axes existed — it is `rederive_legs` +
+  `rederive_hops` + `rederive_cost` in isolation — and describing the shipped five-axis
+  gate with it understated the migration by a factor of five. `tests/test_corpus_gate.py`
+  now pins every number above against a real `run_gate` report, per trip and per failure
+  class, so the document and the mechanism cannot drift apart again.
+- **A timed `slot: lodging` row is not subject to the closing-buffer check.** The gate
+  folds each stop's chosen lodging into the POI pool (P4), which briefly put check-in and
+  checkout rows in `rederive_closing`'s scope and demanded `hours.close` from them —
+  unsatisfiable, because `schemas/accommodations.schema.json` forbids `hours` on a
+  candidate. The lodging arrival check is a separate mechanism on a field that schema DOES
+  declare (`scripts/facilities.py::reception_ok` against `reception.close`, owned by
+  accommodation-research); re-deriving it is deferred to 0.34.0. Seven corpus rows moved
+  out of scope, which is why the closing figures above read 56 rather than 63.
+- **Rule 13.5 routes the missing-hours class to `tripwork:source-verify`.** `hours` lives
+  in `verified-pois.yaml` and only source-verify writes it, but the failure previously
+  fell through to `tripwork:itinerary-synthesis`, which cannot write the field — so the
+  feedback loop could not terminate. Granting each routed stage its best possible fix,
+  all four trips now drain to `pass` in 4-5 rounds. With the route removed, the three
+  trips that HAVE missing-hours rows stall on exactly those rows and never pass — yilan
+  at 5, sun-moon-lake at 12, northeast-coast at 10. trip-c has none, so it is
+  the one clean trip that drains either way; it is not evidence for this change.
+  `tests/test_corpus_gate.py` runs the drain on all four and the route-removed
+  counterfactual on yilan.
+- **The gate now FAILS when `legs.yaml`, `routing.yaml` or `cost.yaml` is absent**,
+  where it previously passed silently. An absent artifact means the pipeline ran out
+  of order, and the gate says so now instead of shrugging. This affects every existing
+  trip directory that predates this release, not only ones already known to be dirty.
+- **A POI must record `geocode.geocode_source`.** Omitting it used to skip Gate 2c
+  silently; it is now a refusal. 19 real POIs currently omit it, none of them
+  currently `verified` (see above).
+
+### Residual, stated rather than fixed here
+
+- `gate.py`'s thirteen legacy checks (the pre-0.33.0 ones) still derive `passed` by
+  substring-scanning a single merged failures list rather than carrying their own
+  explicit pass/fail. `no_ai_tone`'s failure messages are the first to embed
+  **arbitrary trip text** — an AI-tone snippet — into that shared list. The realistic
+  collision surface is narrow (the markers are English literals, the corpus is
+  Chinese prose) but the coupling itself is unfixed; converting every check to an
+  explicit per-check failure list is a wider refactor than this release.
+
+### Deferred to 0.34.0
+
+- **R5 (`lead_time_missed`) and R6 (`in_peak`) re-derivation.** R5 needs a wall-clock
+  read (`today_iso`) that no schema field records; naively substituting today's date
+  risks a calendar-driven non-terminating loop (a `False` recorded at synthesis time
+  flips to `True` purely from elapsed days, `verdicts_match` fails, rule 13.5 routes
+  back to synthesis, synthesis rewrites the same itinerary, it fails again) — needs its
+  own freshness-rule design, not naive re-derivation. R6 is vacuously satisfied on 2 of
+  4 valid corpus trips today (`in_peak` returns `False` for every input when
+  `peak_windows` is empty, so the recorded and re-derived values agree on a premise
+  that was never actually true); needs a `no_peak_windows` legitimacy declaration and a
+  narrowed scope before it means anything.
+- **TW-062's `verified-pois.schema.json` `allOf` constraint** (a `cluster_fallback`
+  geocode source paired with `verify_status: verified` must carry an existence-proof
+  source). Deferred so that existing trips carrying this shape (chiayi has 8) get a
+  routed, fixable gate failure rather than a hard `validate_artifact` exit 1 — tightening
+  the schema before the corpus migrates would be strictly worse than the gate-level
+  enforcement this release already ships.
+- Lodging Gate 0 (needs `accommodations.schema.json` `business_status`).
+- **Re-deriving `reception_ok`** — the lodging counterpart of the closing-buffer check.
+  `slot: lodging` rows are out of `rederive_closing`'s scope because `hours` is a
+  verified-pois field a lodging candidate cannot carry; the arrival-vs-reception verdict
+  lives on `reception.close`, which the lodging schema DOES declare, and
+  `scripts/facilities.py::reception_ok` already computes it. What is missing is the
+  artifact-level re-derivation: 3 of 5 chosen lodgings in the corpus record `reception`
+  at all, and only 1 records a `close`, so the axis would be almost entirely a
+  rederivable gap today.
+- Wiring `deps_stale` into the router. The producing side is not missing —
+  `skills/travel-advisory/SKILL.md` instructs recording `input_fingerprints`,
+  `schemas/advisory.schema.json` declares it, and rule 11 already runs the same
+  comparison inline for that edge. What is missing is DATA: no corpus artifact records
+  the field yet, so a wired predicate could not be validated against anything real.
+  The wiring pass should replace rule 11's inline copy, not sit beside it.
+- `gate.py`'s thirteen-legacy-check substring coupling (see Residual above).
+
+### End-to-end consumer-fixture closure
+
+`tests/test_e2e_v033_closure.py` builds ONE fixture trip carrying all eleven of this
+release's exit-criterion defects at once and drives it through both real CLIs from a
+cwd outside the repo, with an absolute script path. It exists because the eleven do
+not all live at the same layer: `scripts/gate.py` consumes the `verify_status`
+already recorded in `verified-pois.yaml` and never re-runs `verify_poi`, so the three
+write-time defects (a `cluster_fallback` POI with no existence proof, a POI whose
+`geocode` records no `geocode_source`, a bare-string `business_status`) are closed by
+`scripts/source_verify_run.py` → `verify_poi` as the artifact is WRITTEN, and the
+other eight by `gate.py` as the finished artifact is GATED. A closure that ran only
+the gate would have reported all eleven green while proving nothing about the first
+three. The layer boundary is asserted in both directions rather than described: the
+fixture schedules a POI carrying the missing-`geocode_source` defect and pins that
+the gate says nothing about it while `verify_poi` refuses it. The run is network-free
+without `--offline` (the per-trip geocode cache is pre-seeded, and a cached miss is
+what makes the `cluster_fallback` branch deterministic) — `--offline` could not be
+used, because it returns before any geocode is built and so can produce neither a
+`cluster_fallback` coordinate nor any coordinate at all.
+
+Tests: 874 → 999, zero skipped or xfailed throughout.
+
+## 0.32.0 — provenance at write time: six dogfood defects, gates that can now fail
+
+A consumer 3D2N dogfood run finished with `gate-report.yaml` 13/13 green and
+`export-gate-report.yaml` 17 of 19 (the other two are the deliberate
+non-distributable labels) — and the user still caught errors by eye. Every
+defect landed on one axis: **a gate that consumes a value the agent asserted about
+itself cannot fail, and a check that cannot fail is indistinguishable from a check
+that passed.** This release closes six instances of that axis at the moment a value
+is written.
+
+**Read the scope note at the bottom before assuming it closes more than it does.**
+
+- **Operating status needs a source and a date (TW-063).** `business_status` was a
+  bare enum — no `as_of`, no `source_url` — while `hours.as_of` and `rating_source`
+  already existed in the same repo. In the dogfood run 17 of 17 verified POIs carried
+  a hand-typed `OPERATIONAL`; the user caught a temporarily-closed restaurant on
+  Google Maps that Gate 0 did not. It is now the object form
+  `{status, source_url, as_of}` with a 90-day ceiling, and a bare string is treated
+  as self-attested (`unverified`, not a silent pass).
+  Both acquisition routes the SKILL used to name were measured dead: a fetched Google
+  Maps card carries no `businessStatus` (client-side render), and "official-site 404"
+  does not apply to venues whose only web presence is a social page. The skill now
+  names the routes that work — Places API, a dated official/social statement, or a
+  phone confirmation recorded as `tel:` — and says plainly that leaving a POI
+  `unverified` with a pre-departure call on the checklist is the honest outcome, not
+  a defect.
+- **A district centroid is not a geocode (TW-062).** `cluster_fallback` lived in the
+  global `geocode_source` enum but only `accommodation-research` ever authorised it,
+  and `verify_poi` never read the field (`grep -rn geocode_source scripts/` returned
+  nothing). So a POI carrying a neighbouring cluster's centroid passed Gate 2, skipped
+  Gate 2b (no `resolved_name` meant `name_match` defaulted `True`), and satisfied
+  Gate 3b by construction. The incentive inverted: a POI the geocoder could NOT
+  resolve was easier to verify than one it resolved to a different name. Dogfood: 8
+  of 17 verified POIs took this path, and 7 of those 8 share a verbatim-identical
+  coordinate with a sibling (one group of three, two groups of two). Four were bound
+  to a schedule slot at some point during the run; one survived into the shipped
+  itinerary as a meal. A centroid now keeps a POI `verified` only with an existence
+  proof independent of the coordinate.
+  The same commit closes the twin one gate over: omitting `resolved_name` used to
+  skip Gate 2b silently. Callers now pass the resolved name or the explicit
+  `NO_RESOLVED_NAME` sentinel — silence is no longer a pass.
+- **A re-estimated hop must say where the estimate came from (TW-066).**
+  `classify_hop` compared numbers only, and the skill offered "re-estimate the hop or
+  cite a timetable" — the first branch needs no evidence. Dogfood: two hops judged
+  `implausible` were re-typed as 30 and 20 minutes and the gate went green with no
+  source and no trace. Root cause the defect report missed: `routing.schema.json`
+  constrained `flag` to `[ok, far]`, so honestly recording `implausible` produced an
+  invalid artifact — raising the guess was the only schema-legal move. The enum now
+  carries `implausible` and `unsourced`, hops record `duration_source` (+ `source_url`,
+  required when the source is not an agent estimate), and the verdict precedence is
+  **implausible > far > unsourced > ok** so the user-facing `far` halt can never be
+  swallowed by a provenance verdict.
+- **The iron rule binds to provenance, not to a vendor tool (TW-064).** "No search,
+  no fact" halted on `WebSearch` being unavailable. Nine skills named that tool and
+  `WebFetch` appeared nowhere, so on a model group without `web_search_20250305` every
+  research stage halted and the plugin was unusable — a dogfood run hit exactly that
+  API error and the agent invented its own WebFetch route, correctly, with nothing in
+  the plugin to record it. Renamed **No unsourced fact** and rewritten as a three-rung
+  source ladder; HALT fires only when every rung is unavailable. The four alt-platform
+  mirrors (`GEMINI.md`, `.kimi-plugin`, `.opencode`, `.pi`) were re-synced and are now
+  guarded — they had each kept the old single-tool framing.
+- **The drive home is a leg, with an owner (TW-065).** `inter-stop-legs` told a
+  single-base trip to write `legs: []` and return, so the home↔base drive belonged to
+  no stage: `cost-rollup`'s only transport source is `legs.yaml`'s `fare`, and
+  `drive_too_long` never saw what is usually the longest drive of the trip. Three real
+  trips produced three incompatible shapes — one hand-wrote 1,300 into `cost.yaml` (a
+  line item carries no `sources` requirement and never reaches `classify_leg`), one
+  added three home legs totalling 445 min / NT$2,200 with the return split across two
+  rows through a non-overnight waypoint, one broke the SKILL and got the right answer.
+  `legs[].kind: inter_stop|home` plus `trip-brief.home_origin`/`home_return`, both
+  optional.
+- **Advisory staleness anchors on content, not on file mtime (TW-067).** Rule 11
+  compared whole-file mtimes while its own comment named destination/dates/airline as
+  the anchor, so editing `must_do` invalidated the advisory and the only way to clear
+  the oracle was to rewrite a byte-identical file. Dogfood did it three times; the
+  final `advisory.yaml` is 277 bytes of `items: []`. The damage is not the wasted run
+  — it teaches an agent to satisfy an oracle by touching a file, and rules 13 and 15
+  have mtimes that ARE load-bearing. Now a normalised content fingerprint, with mtime
+  as the fallback when none is recorded (rule 11 is the gate that surfaces a `banned`
+  regulation, so it fails closed).
+- **Known schema inconsistency, not fixed here.** `candidates.schema.json`'s
+  `business_status` is still the bare-string enum — only `verified-pois` gained the
+  sourced object form. Nothing exercises the gap today (`destination-research` never
+  writes the field; only `source-verify` does), but the two schemas now disagree.
+- **Gate reports can record how many records a check examined.** `checks[]` accepts an
+  optional `examined` integer. Nothing emits it yet — see the scope note.
+
+### Migration — read this before re-running an existing trip
+
+- **Re-running `source-verify` will empty an existing trip.** Measured against the four
+  schema-clean consumer trips: **100 of 100 currently-`verified` POIs become
+  `unverified`** — three trips because `business_status` is a bare string, one because
+  45 POIs have no `business_status` at all. `itinerary-synthesis` reads only `verified`,
+  so the next synthesis produces an empty itinerary until the operating signals are
+  re-sourced. This is the intended consequence of the fix, not a regression.
+- **Artifacts already on disk are untouched.** `gate.py` consumes the `verify_status`
+  recorded in the artifact; nothing re-runs `verify_poi` over a finished trip. So this
+  release closes the self-attestation defect **at write time only**. Closing it for
+  existing artifacts requires re-deriving recorded verdicts from recorded inputs, which
+  is 0.33.0's work.
+- New artifact fields are **optional in schema and required by the gate**, so every
+  existing artifact still passes `validate_artifact` (verified: 60/60 files across the
+  four clean trips) and a stale one gets a routed gate failure rather than a hard
+  validation error.
+
+### Deliberately still open
+
+- **Lodging does not reach the new gates.** `accommodation-research` calls
+  `classify_candidate` directly, so `operating`, `name_match` and `geocode_source` all
+  take permissive defaults. 14 of 18 real lodging candidates are `cluster_fallback`
+  with no `business_status`. TW-062 and TW-063 do not apply to hotels yet.
+- **Gate 2c can be skipped by omission.** It keys on `geocode_source`, which is
+  optional; a POI that simply omits the field never reaches the check. 19 real POIs
+  already omit it.
+- `classify_hop`'s floor and provenance checks both sit behind `km`/`mode`, which are
+  optional — omitting them skips both.
+- `examined` has no producer, so gate reports still cannot say how many records they
+  inspected.
+- `legs[].kind: home` has no renderer: `itinerary-synthesis` renders a leg only on a
+  day that moves between overnight stops, so a home leg feeds cost and feasibility but
+  may never reach the deliverable.
+
+### Scope
+
+TW-068 (a batch driver for `source-verify`) and TW-069 (a page-level markdown render
+entry plus a `contingency` container) are **not** in this release, along with verdict
+re-derivation, the mechanical AI-tone gate, the `_DEPS` staleness table, and
+photo-enrichment ownership. All are 0.33.0.
+
+Tests: 813 → 874, zero skipped or xfailed.
+
+## 0.31.0 — Codex hook 127: hooks-codex.json anchors on CLAUDE_PLUGIN_ROOT
+
+- **`hooks/hooks-codex.json` 相對路徑必爆 127**（下游 consumer 實爆，paperwork 7.98.0 / chipwork 0.54.0 同批）：command 原為 `bash ./hooks/run-hook.cmd session-start`，但 Codex 執行 plugin hook 時 cwd 是 session workspace 而非 plugin root（`codex-rs/hooks/src/engine/command_runner.rs` — `$SHELL -lc` + `current_dir(cwd)`），SessionStart 在每一個真實 Codex 安裝上都 exit 127。Codex 對 hook process 注入 `CLAUDE_PLUGIN_ROOT`/`PLUGIN_ROOT` env（`discovery.rs` OOTB compat），故 command 改為與 `hooks.json` 相同的 `"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start`。
+- 測試：`tests/test_manifests_present.py` 新增 plugin-root 錨定斷言＋e2e closure（`bash -lc`、foreign cwd、僅注入 `CLAUDE_PLUGIN_ROOT` — 斷言 rc=0 且輸出 SessionStart JSON）。修復前雙 RED（127 重現），修復後 GREEN。
+- 同根因掃描：`hooks.json`（Claude）不受影響；`hooks-cursor.json` 相對路徑列 follow-up（Cursor cwd 語意未驗證、無消費者回報）。
 
 ## 0.30.0 — lodging name_zh: kana-hotel gate gap closed
 
@@ -103,7 +2003,7 @@ the unit + e2e tests were falsely green.
 The export-gate and html-gate `links_well_formed` check was scheme-only (`^https?://`),
 so the 0.23.0 dead `maps/place/?q=place_id:<id>` deep-link form — which Google does not
 resolve — passed both gates green while shipping 38 dead POI links in a real deliverable
-(hokkaido-7d, 2026-07-01). `maps_url` itself was already fixed in 0.24.0, but nothing
+(trip-e, 2026-07-01). `maps_url` itself was already fixed in 0.24.0, but nothing
 mechanically enforced the ban, so any regression to a dead-but-`https://` form shipped
 unnoticed. This adds a mechanical `maps_link_resolvable_form` check to both gates.
 
@@ -339,14 +2239,14 @@ Migration note: the canonical kana check is stricter than the old md-only check 
 POI-link's `（gloss）` on the same line could mask), so an existing `itinerary.yaml` with
 ungloss kana in a **checklist** item or row `text` will now fail `itinerary-gate` until the
 synthesis author adds the （中文）gloss — the documented gloss discipline, now enforced at
-the source. (e.g. the dogfood `hokkaido-7d` checklist `かに将軍` / `ラビスタ函館ベイ` need glossing.)
+the source. (e.g. the dogfood `trip-e` checklist `かに将軍` / `サンプルホテル函館` need glossing.)
 
 ## 0.19.0 — 3-col grid itinerary layout + move directions links + content-hygiene gate
 
 The native HTML/markdown renderer adopts the consumer's hand-built one-pager layout
 (G1–G5), adds structured move-row directions links (G2), and grows a mechanical gate that
 stops internal jargon from reaching user-facing deliverables (G6). Verified to reproduce
-the visual baseline (`trips/hokkaido-7d/exports/hokkaido-7d-itinerary.html`) structurally
+the visual baseline (`trips/trip-e/exports/trip-e-itinerary.html`) structurally
 on real data. Backward-compatible: trips without `from`/`to` render exactly as before.
 
 - **G1 — 3-column grid (`_STYLE`, `_row_html`, `_photo_html`).** Rows render as a CSS grid
@@ -399,7 +2299,7 @@ same dashed border as every other row, so it was unclear which slot it replaced.
   rows is *attached* iff it is sandwiched between a real row **both before and after**
   (a fallback for the preceding slot). The attached alt gets `class="row alt attached"`
   and the real row above gets `has-alt`; a **trailing** run (day-tail 本日備案, e.g.
-  「備案(乃の風訂不到)」) or a **leading** run stays an independent box. Consecutive alts
+  「備案(示の風訂不到)」) or a **leading** run stays an independent box. Consecutive alts
   bind to the same parent.
 - **Connector styling (`_STYLE`).** `.row.alt.attached` drops its top border + top
   radius, indents to the `.bd` column (`margin-left:62px`), and shows a `↳` `::before`
@@ -524,7 +2424,7 @@ unchanged (render-time, in-stage feature).
 ## 0.17.0 — card-style HTML one-pager + mobile RWD fail-safe + XSS hardening
 
 The `html` export adapter (`scripts/render/html_page.py`) is rewritten from a
-plain card list into a magazine-style one-pager, modelled on the hokkaido-7d
+plain card list into a magazine-style one-pager, modelled on the trip-e
 dogfood deliverable. Everything new is derived strictly from `itinerary.yaml`
 fields — nothing is fabricated (Source-Verified-First): the advisory `warn`
 box from the hand-authored reference is intentionally omitted because that data
@@ -555,9 +2455,9 @@ is not in the itinerary dict.
   day, so `export-gate` / `run_html_gate` still pass; the markdown / gmaps /
   line / Notion adapters are untouched. README §3 deliverable copy updated.
 
-## 0.16.0 — hokkaido-7d dogfood defects (D1-D4)
+## 0.16.0 — trip-e dogfood defects (D1-D4)
 
-Four defects surfaced by a real Hokkaido 7-day dogfood run, plus a cross-cutting
+Four defects surfaced by a real 7-day dogfood run, plus a cross-cutting
 audit of the false-pass shape that produced two of them.
 
 - **D1 🔴 Google Maps links — name-search-first.** `maps_url` now returns

@@ -5,11 +5,11 @@ import pytest
 SKILLS = pathlib.Path(__file__).resolve().parent.parent / "skills"
 
 EXPECTED = [
-    "using-tripwork", "orchestrator", "trip-brief", "destination-research",
+    "using-tripwork", "tripwork-orchestrator", "trip-brief", "destination-research",
     "source-verify", "routing-audit", "accommodation-research", "inter-stop-legs",
     "calendar-check", "seasonal-advisory", "transit-detail", "cost-rollup",
-    "itinerary-synthesis", "travel-advisory", "itinerary-gate", "export-artifact",
-    "export-gate", "workspace-shape-preflight",
+    "itinerary-synthesis", "travel-advisory", "itinerary-gate", "tripwork-export-artifact",
+    "export-gate", "tripwork-workspace-shape-preflight",
 ]
 
 def _frontmatter(md_text):
@@ -61,7 +61,7 @@ def test_iron_rule_skills_state_source_verified_first():
 def test_export_skill_documents_notion_as_md_paste_not_adapter():
     # 0.20.0: Notion is no longer a tracked adapter/deliverable — the agent pastes the
     # gated md via MCP, so it inherits export-gate hygiene with no separate gate.
-    text = (SKILLS / "export-artifact" / "SKILL.md").read_text(encoding="utf-8")
+    text = (SKILLS / "tripwork-export-artifact" / "SKILL.md").read_text(encoding="utf-8")
     assert "Notion" in text
     assert "not a tracked adapter" in text
     assert "MCP" in text
@@ -83,17 +83,21 @@ def test_source_verify_geocode_uses_name_local():
 
 
 def test_preflight_documents_stamp_and_gate():
-    text = (SKILLS / "workspace-shape-preflight" / "SKILL.md").read_text(encoding="utf-8")
+    text = (SKILLS / "tripwork-workspace-shape-preflight" / "SKILL.md").read_text(encoding="utf-8")
     assert "preflight-completed" in text  # stamp file name
-    assert "orchestrator" in text          # gates the orchestrator
+    assert "tripwork-orchestrator" in text          # gates the orchestrator
 
 def test_orchestrator_wires_export_gate_after_export():
-    text = (SKILLS / "orchestrator" / "SKILL.md").read_text(encoding="utf-8")
-    assert "export-gate" in text, "orchestrator must route to export-gate after export-artifact"
+    text = (SKILLS / "tripwork-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
+    assert "export-gate" in text, "orchestrator must route to export-gate after tripwork-export-artifact"
 
 def test_export_artifact_uses_slug_named_deliverable():
-    text = (SKILLS / "export-artifact" / "SKILL.md").read_text(encoding="utf-8")
-    assert "<slug>-itinerary.md" in text, "deliverable must be renamed to avoid intermediate clash (D3)"
+    text = (SKILLS / "tripwork-export-artifact" / "SKILL.md").read_text(encoding="utf-8")
+    # D3 renamed the deliverable so it could not clash with synthesis's root
+    # itinerary.md; v1.0 removed that intermediate and names every deliverable
+    # by the brief's stem through the one path helper.
+    assert "scripts/paths.py::deliverable_paths" in text and "<stem>.md" in text, \
+        "deliverable names come from the path helper (D3, v1.0)"
     assert "render_day_table" in text, "day table must go through the renderer, not hand-authoring (D5)"
 
 def test_trip_brief_documents_overnight_stops_and_facilities():
@@ -129,7 +133,7 @@ def test_itinerary_gate_documents_lodging_checks():
     assert "required_facilities_met" in text
 
 def test_orchestrator_wires_accommodation_research():
-    text = (SKILLS / "orchestrator" / "SKILL.md").read_text(encoding="utf-8")
+    text = (SKILLS / "tripwork-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
     assert "accommodation-research" in text
 
 def test_synthesis_documents_seasonal():
@@ -138,7 +142,7 @@ def test_synthesis_documents_seasonal():
     assert "after_dark" in text or "after-dark" in text
 
 def test_orchestrator_wires_seasonal_advisory():
-    text = (SKILLS / "orchestrator" / "SKILL.md").read_text(encoding="utf-8")
+    text = (SKILLS / "tripwork-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
     assert "seasonal-advisory" in text
 
 def test_trip_brief_documents_leg_mode():
@@ -152,7 +156,7 @@ def test_synthesis_documents_legs():
     assert "last_service" in text or "pass_advice" in text
 
 def test_orchestrator_wires_inter_stop_legs():
-    text = (SKILLS / "orchestrator" / "SKILL.md").read_text(encoding="utf-8")
+    text = (SKILLS / "tripwork-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
     assert "inter-stop-legs" in text
 
 def test_trip_brief_documents_budget():
@@ -174,7 +178,7 @@ def test_synthesis_documents_cost_summary():
     assert "cost.yaml" in text
 
 def test_orchestrator_wires_cost_rollup():
-    text = (SKILLS / "orchestrator" / "SKILL.md").read_text(encoding="utf-8")
+    text = (SKILLS / "tripwork-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
     assert "cost-rollup" in text
 
 def test_accommodation_research_documents_geocode_cache():
@@ -191,14 +195,14 @@ def test_synthesis_documents_transit():
     assert "in_peak" in text or "walk_too_far" in text
 
 def test_orchestrator_wires_transit_detail():
-    text = (SKILLS / "orchestrator" / "SKILL.md").read_text(encoding="utf-8")
+    text = (SKILLS / "tripwork-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
     assert "transit-detail" in text
 
 
 # ---- Wave 3 (v0.14.0) flow + contract guards ----
 
 def _orch():
-    return (SKILLS / "orchestrator" / "SKILL.md").read_text(encoding="utf-8")
+    return (SKILLS / "tripwork-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
 
 def test_tw054_orchestrator_namespaces_skill_names():
     text = _orch()
@@ -244,7 +248,7 @@ def test_tw035_travel_advisory_standalone_no_write():
 def test_tw036_trip_brief_preflight_guard_before_write():
     text = (SKILLS / "trip-brief" / "SKILL.md").read_text(encoding="utf-8")
     guard = text.find("preflight-completed")
-    write = text.find("trips/<slug>/trip-brief.yaml")
+    write = text.find("trips/<slug>/data/trip-brief.yaml")
     assert 0 <= guard < write, "preflight guard must precede the first write"
     fm = _frontmatter(text)
     assert "orchestrator has routed" in fm
@@ -262,7 +266,7 @@ def test_tw037_using_tripwork_pipeline_full_order():
     order = ["trip-brief", "travel-advisory", "destination-research", "source-verify",
              "routing-audit", "accommodation-research", "inter-stop-legs",
              "calendar-check", "seasonal-advisory", "transit-detail", "cost-rollup",
-             "itinerary-synthesis", "itinerary-gate", "export-artifact", "export-gate"]
+             "itinerary-synthesis", "itinerary-gate", "tripwork-export-artifact", "export-gate"]
     positions = [block.find(n) for n in order]
     assert all(p >= 0 for p in positions), f"missing stages: {[n for n,p in zip(order,positions) if p<0]}"
     assert positions == sorted(positions), "using-tripwork pipeline order diverges from orchestrator"
@@ -285,43 +289,44 @@ def _skill(name):
     return (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
 
 def test_tw024_websearch_unavailable_halts():
+    # TW-064 rebound the halt condition from one tool's availability to "every
+    # route [in the source ladder] unavailable" and reworded the no-substitute
+    # clause accordingly; this guard now checks the current wording of the same
+    # discipline (WebSearch still named, HALT still the outcome, model recall
+    # still barred as a stand-in for a fetched source).
     t = _skill("using-tripwork")
-    assert "WebSearch" in t and "HALT" in t and "never substitute model memory" in t
-
-def test_using_tripwork_documents_adaptive_subagent_dispatch_contract():
-    t = _skill("using-tripwork")
-    assert "## Adaptive Subagent Dispatch" in t
-    assert "bounded inputs" in t
-    assert "summary-only" in t
-    assert "cost_tier" in t
-    assert "Do not delegate" in t
-
-def test_orchestrator_documents_stage_to_role_dispatch():
-    t = _skill("orchestrator")
-    assert "## Adaptive Subagent Dispatch" in t
-    assert "architecture" in t
-    assert "mechanical" in t
-    assert "trivial" in t
-    assert "itinerary-synthesis" in t
+    assert "WebSearch" in t and "HALT" in t and "model recall is never a source" in t
 
 def test_tw025_notion_is_gated_md_paste_not_adapter():
     # 0.20.0: Notion is no longer a post-gate write-back adapter. The itinerary reaches
     # Notion by pasting the already-gated md via MCP — no page-id bookkeeping, no adapter.
-    t = _skill("export-artifact")
+    t = _skill("tripwork-export-artifact")
     assert "gated" in t and "Notion" in t and "MCP" in t
     assert ".notion-page-id" not in t   # the old adapter bookkeeping is gone
 
 def test_tw032_independent_and_conflict_defined():
     t = _skill("source-verify")
-    assert "root domain" in t and "material factual disagreement" in t
+    assert "registrable domain" in t and "material factual disagreement" in t   # v2.0.0: was "root domain"
 
 def test_tw033_hours_recency_as_of():
     t = _skill("source-verify")
     assert "hours.as_of" in t and ("12 months" in t or "recency" in t.lower())
 
-def test_tw051_centroid_existence_proof():
+def test_tw072_centroid_fallback_subsumed_by_gate_0():
+    """Migrated from test_tw051_centroid_existence_proof (v0.34.0 Task 6 fix
+    round 1, I1). The old assert (`"existence proof" in t and "official" in
+    t`) stopped meaning anything the moment the SKILL's sentence changed from
+    REQUIRING an existence proof to REVOKING that requirement ("needs no
+    existence proof beyond Gate 0") -- the phrase "existence proof" is
+    supplied by the negation, and "official" by unrelated lines elsewhere in
+    the doc, so the guard could no longer tell "requires the proof" apart
+    from "retires the requirement". Both satisfied the old assert. This
+    checks the actual current claim instead: the fallback is subsumed by
+    Gate 0's sourced business_status, not a separate existence check."""
     t = _skill("accommodation-research")
-    assert "existence proof" in t and "official" in t
+    assert "existence proof beyond Gate 0" in t
+    assert "subsumed" in t
+    assert "business_status" in t
 
 def test_tw052_calendar_trip_year_provisional():
     t = _skill("calendar-check")
@@ -354,12 +359,153 @@ _VALIDATOR_SKILLS = ["trip-brief", "destination-research", "source-verify",
 
 def test_stage_skills_cite_validator_cli():
     missing = [n for n in _VALIDATOR_SKILLS
-               if "validate_artifact.py" not in _skill(n)]
+               if "tripwork.py validate" not in _skill(n)]
     assert not missing, f"skills missing the validator CLI line: {missing}"
 
 def test_gate_skills_cite_gate_clis():
-    assert "python scripts/gate.py" in _skill("itinerary-gate")
-    assert "python scripts/export_gate.py" in _skill("export-gate")
+    assert "tripwork.py gate" in _skill("itinerary-gate")
+    assert "tripwork.py export-gate" in _skill("export-gate")
 
 def test_orchestrator_cites_next_stage_cli():
-    assert "next_stage.py" in _orch()
+    assert "tripwork.py next" in _orch()
+
+def test_iron_rule_halts_on_provenance_not_on_a_tool_name():
+    """TW-064: the rule's target is model memory, not a vendor tool.
+
+    Dogfood 2026-08-07T09:57 measured 'tool type web_search_20250305 is not
+    supported for this model'. Under the tool-bound wording every research stage
+    halts, which makes the plugin unusable rather than careful.
+    """
+    body = (SKILLS / "using-tripwork" / "SKILL.md").read_text(encoding="utf-8")
+    # The rewrite also renames the row from "No search, no fact" to "No unsourced
+    # fact" (the old name still reads as tool-bound, which is exactly the defect
+    # being fixed) — locate the row by its new name, not the one being replaced.
+    rule = [ln for ln in body.splitlines() if "No unsourced fact" in ln]
+    assert rule, "iron rule row not found"
+    row = rule[0]
+    assert "WebFetch" in row, "the ladder's second rung must be named in the rule"
+    assert not re.search(r"If the `WebSearch` tool is unavailable", row), \
+        "halt must not be bound to one tool's availability"
+    assert "every route" in row or "all routes" in row, \
+        "HALT fires only when EVERY route is unavailable"
+
+
+def test_every_websearch_skill_points_at_the_ladder():
+    """Dynamically enumerated so a new research skill is covered automatically."""
+    offenders = []
+    for path in sorted(SKILLS.glob("*/SKILL.md")):
+        body = path.read_text(encoding="utf-8")
+        if "WebSearch" not in body:
+            continue
+        if path.parent.name == "using-tripwork":
+            continue
+        if "source ladder" not in body:
+            offenders.append(str(path))
+    assert offenders == [], f"skills naming WebSearch without a ladder pointer: {offenders}"
+
+
+def test_source_verify_names_an_achievable_operating_source():
+    """TW-063: SKILL.md:30 pointed Gate 0 at a Google Maps card the plugin cannot
+    open, and named no path that works. The dogfood agent measured both stated
+    routes as dead and fell back to typing OPERATIONAL — the rule produced the
+    behaviour it forbade."""
+    p = SKILLS / "source-verify" / "SKILL.md"
+    body = p.read_text(encoding="utf-8")
+    assert "Places API" in body, "must name the route that actually works"
+    assert "business_status.source_url" in body, "must say what to record"
+    assert "行前電話" in body or "phone" in body.lower(), \
+        "must name the keyless fallback for consumers with no API key"
+
+
+def test_home_leg_ownership_is_stated_on_both_sides():
+    """The defect report's proposed assertion ('inter-stop-legs contains
+    cost-rollup, cost-rollup contains home') is vacuous both ways at HEAD:
+    inter-stop-legs:37 already says cost-rollup, and cost-rollup:33,60 already
+    contain 'home' inside home_currency. These tokens do not exist at HEAD."""
+    legs = open(f"{SKILLS}/inter-stop-legs/SKILL.md", encoding="utf-8").read()
+    cost = open(f"{SKILLS}/cost-rollup/SKILL.md", encoding="utf-8").read()
+    assert "home_origin" in legs
+    assert "kind: home" in legs
+    assert "kind: home" in cost
+
+
+def test_itinerary_synthesis_input_contract_reflects_home_legs():
+    """TW-065 fix-round-1: the Input row claimed legs.yaml is 'empty list if
+    single-base' — false since a single-base trip carrying home_origin/
+    home_return now legitimately writes a non-empty legs.yaml (a kind: home
+    leg). The contract must name the home-endpoint condition, not just
+    single-base vs multi-base."""
+    text = (SKILLS / "itinerary-synthesis" / "SKILL.md").read_text(encoding="utf-8")
+    assert "empty list if single-base" not in text, \
+        "Input row still claims legs.yaml is empty for every single-base trip"
+    assert "home endpoint" in text, \
+        "Input row must name the home-endpoint condition that keeps legs.yaml non-empty"
+
+
+def test_itinerary_synthesis_renders_home_legs_on_day_one_and_last_day():
+    """TW-069 fix round 1, Important 1: prose alone is not a mechanism (the
+    reviewer proved the Step 5b render test was green at a3e26f6, unmodified by
+    this task). This test only pins the SKILL.md prose contract; the mechanical
+    enforcement is scripts/gate.py::_home_legs_rendered_failures + the
+    home_legs_rendered check (tests/test_gate.py), not this file. Task 1 already
+    wired legs into run_gate (rederive_legs re-derives every leg's classify_leg
+    verdict, home legs included — 4 hits for `legs` in scripts/gate.py at this
+    branch's HEAD) and cost-rollup already sums a home leg's fare; the Inter-city
+    moves section must say where each half of a `kind: home` leg goes, that its
+    endpoints trace back to trip-brief, and that leg_index is what the gate
+    checks."""
+    text = (SKILLS / "itinerary-synthesis" / "SKILL.md").read_text(encoding="utf-8")
+    assert "kind: home" in text
+    assert "day 1" in text
+    assert "last day" in text
+    assert "home_origin" in text and "home_return" in text
+    assert "leg_index" in text
+
+
+def test_orchestrator_rule11_describes_fingerprint_not_mtime():
+    """C2: TW-067 (task 7) replaced rule 11's implementation with a content
+    fingerprint comparison, but left the rule-book prose agents actually read
+    describing the OLD mtime mechanism ('advisory.yaml stale relative to
+    trip-brief.yaml (advisory older than the brief)'). For a trip carrying a
+    fingerprint that sentence is false: rewriting the advisory no longer
+    clears rule 11 by making it newer, and `input_fingerprints` appeared
+    nowhere in the skill. Pin the fix: rule 11's own text must name the
+    fingerprint mechanism, and the Definitions section must say where the
+    fingerprint comes from; mtime survives only as the documented fallback for
+    an advisory with no recorded fingerprint, not as rule 11's definition.
+    """
+    text = (SKILLS / "tripwork-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
+    assert "input_fingerprints" in text, \
+        "Definitions must name where the fingerprint comes from"
+
+    start = text.index("11. cost ready")
+    end = text.index("12. advisory ready")
+    rule11 = text[start:end]
+    assert "fingerprint" in rule11, \
+        "rule 11 must describe the fingerprint comparison, not just mtime"
+    assert "fallback" in rule11.lower(), \
+        "rule 11 must say mtime is used only when no fingerprint was recorded"
+
+
+def test_orchestrator_definitions_name_fingerprint_source():
+    text = (SKILLS / "tripwork-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
+    defs_start = text.index("## Definitions")
+    defs_end = text.index("## Stage Selection")
+    definitions = text[defs_start:defs_end]
+    assert "input_fingerprint" in definitions, \
+        "Definitions section must name scripts/orchestration.py::input_fingerprint"
+    assert "input_fingerprint.py" in definitions or "orchestration.py" in definitions, \
+        "Definitions section must point at where the fingerprint is computed"
+
+
+def test_export_artifact_owns_the_photo_adapter():
+    """grep -rn photo_adapter skills/ returned zero at HEAD: an entire producing
+    stage with a script, a schema, three gates and an e2e test, and no owner."""
+    # NOTE: the module-level constant in this file is `SKILLS` (a pathlib.Path at
+    # tests/test_skills_structure.py:5), NOT `SKILLS_DIR`. An earlier draft wrote
+    # SKILLS_DIR and would have raised NameError — the same brief defect Part 1 hit
+    # three times. Reuse the existing constant; never declare a second one.
+    body = (SKILLS / "tripwork-export-artifact" / "SKILL.md").read_text(encoding="utf-8")
+    assert "scripts/photo_adapter.py" in body
+    assert "preferences.photos" in body
+    assert "ONLY writer" in body or "only writer" in body

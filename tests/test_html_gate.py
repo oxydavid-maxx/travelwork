@@ -63,11 +63,11 @@ class TestRunHtmlGate:
         assert any("empty" in f for f in result["failures"])
 
     def test_too_few_day_cards_fails(self):
-        """Real page but min_days=5 → status 'fail' (only 1 day card)."""
+        """Real page but min_days=5 → status 'fail' (only 1 day page, v1.0 reader)."""
         html = render_html_page(ITIN, POI_MAP)
         result = run_html_gate(html, pois=[], min_days=5)
         assert result["status"] == "fail"
-        assert any("too few day cards" in f for f in result["failures"])
+        assert any("too few day pages" in f for f in result["failures"])
 
     def test_javascript_href_fails(self):
         """Page with javascript: href + a day-card → fail, failure mentions 'href'."""
@@ -111,28 +111,31 @@ class TestRunHtmlGatePhoto:
         r = run_html_gate(html, pois=[], min_days=1)
         assert r["status"] == "pass", r["failures"]
 
-    def test_img_https_src_passes(self):
+    def test_img_https_src_fails_because_the_page_must_open_offline(self):
+        """v1.0 (spec §6.10): Quick Look opens the page offline, so only embedded
+        data:image/ sources pass; an https image would be a blank box."""
         html = self._html('<img src="https://upload.wikimedia.org/x.jpg" alt="x">')
         r = run_html_gate(html, pois=[], min_days=1)
-        assert r["status"] == "pass", r["failures"]
+        assert r["status"] == "fail"
+        assert any("non-embedded <img src>" in f for f in r["failures"])
 
     def test_img_http_src_fails(self):
         html = self._html('<img src="http://insecure.example/x.jpg">')
         r = run_html_gate(html, pois=[], min_days=1)
         assert r["status"] == "fail"
-        assert any("unsafe <img src>" in f for f in r["failures"])
+        assert any("non-embedded <img src>" in f for f in r["failures"])
 
     def test_img_javascript_src_fails(self):
         html = self._html('<img src="javascript:alert(1)">')
         r = run_html_gate(html, pois=[], min_days=1)
         assert r["status"] == "fail"
-        assert any("unsafe <img src>" in f for f in r["failures"])
+        assert any("non-embedded <img src>" in f for f in r["failures"])
 
     def test_img_data_non_image_src_fails(self):
         html = self._html('<img src="data:text/html;base64,PHNjcmlwdD4=">')
         r = run_html_gate(html, pois=[], min_days=1)
         assert r["status"] == "fail"
-        assert any("unsafe <img src>" in f for f in r["failures"])
+        assert any("non-embedded <img src>" in f for f in r["failures"])
 
     def test_photo_without_attribution_fails(self):
         pois = [{"id": "p1", "photo": {"data": "data:image/png;base64,iVB"}}]
@@ -155,7 +158,7 @@ class TestRunHtmlGatePhoto:
     def test_new_check_names_present(self):
         r = run_html_gate(self._html(), pois=[], min_days=1)
         names = {c["name"] for c in r["checks"]}
-        assert {"img_src_safe", "photo_has_attribution",
+        assert {"img_src_offline", "photo_has_attribution",
                 "no_nondistributable_photo_source"} <= names
 
 

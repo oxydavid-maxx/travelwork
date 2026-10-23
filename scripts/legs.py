@@ -27,12 +27,16 @@ def misses_last_service(planned_depart_hhmm, last_service_hhmm):
     return depart > last
 
 
+# A taxi is a drive someone else does: same road time, same one-day maximum (TW-085).
+ROAD_MODES = ("drive", "taxi")
+
+
 def classify_leg(leg, max_single_drive_mins=300):
     """Return (status, reason).
 
     status is one of:
         'ok'                 — feasible as planned.
-        'drive_too_long'     — a drive leg over the single-day maximum.
+        'drive_too_long'     — a drive or taxi leg over the single-day maximum.
         'missed_last_service'— a transit leg whose planned same-day departure is
                                after the last train/bus.
 
@@ -40,11 +44,11 @@ def classify_leg(leg, max_single_drive_mins=300):
     'last_service' (transit). Missing transit times mean the leg cannot fail the
     last-service check (returns 'ok').
     """
-    if leg.get("mode") == "drive":
+    if leg.get("mode") in ROAD_MODES:
         dur = leg.get("duration_mins")
         if dur is None or dur == 0:
             raise ValueError(
-                f"drive leg {leg.get('from','?')}->{leg.get('to','?')} has no measured "
+                f"{leg.get('mode')} leg {leg.get('from','?')}->{leg.get('to','?')} has no measured "
                 "duration_mins; cannot classify feasibility (never default to 0)")
         if drive_too_long(dur, max_single_drive_mins):
             return "drive_too_long", (

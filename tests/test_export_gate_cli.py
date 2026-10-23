@@ -1,24 +1,22 @@
 """D2: export-gate CLI merges media itself, gates md+html, writes the report."""
 import pathlib
-import subprocess
-import sys
 
 import yaml
 
 from scripts.validate_artifact import validate_file
-from tests.mech_fixtures import build_full_trip, write_artifact
+from tests.mech_fixtures import trip_brief, build_full_trip, write_artifact
+from scripts.paths import artifact_path, deliverable_paths, report_path, work_dir_for
+from tests.cli_helpers import run_main
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CLI = ROOT / "scripts" / "export_gate.py"
 
 
 def _run(trip_dir):
-    return subprocess.run([sys.executable, str(CLI), str(trip_dir)],
-                          capture_output=True, text=True)
+    return run_main("scripts.export_gate", [trip_dir])
 
 
 def _report(t):
-    return yaml.safe_load((t / "export-gate-report.yaml").read_text(encoding="utf-8"))
+    return yaml.safe_load((report_path(work_dir_for(t), "export-gate-report.yaml")).read_text(encoding="utf-8"))
 
 
 def test_pass_writes_valid_report(tmp_path):
@@ -27,12 +25,12 @@ def test_pass_writes_valid_report(tmp_path):
     assert r.returncode == 0, r.stderr + r.stdout
     rep = _report(t)
     assert rep["status"] == "pass" and rep["retryable"] is True
-    assert validate_file(t / "export-gate-report.yaml")[0] == 0
+    assert validate_file(report_path(work_dir_for(t), "export-gate-report.yaml"))[0] == 0
 
 
 def test_naked_dollar_fails_retryable(tmp_path):
     t, _ = build_full_trip(tmp_path)
-    md = t / "exports" / f"{t.name}-itinerary.md"
+    md = deliverable_paths(t, trip_brief())["md"]
     md.write_text(md.read_text(encoding="utf-8") + "\n門票 $120 很划算\n",
                   encoding="utf-8")
     r = _run(t)
@@ -43,7 +41,7 @@ def test_naked_dollar_fails_retryable(tmp_path):
 
 def test_media_present_but_zero_img_fails(tmp_path):
     t, _ = build_full_trip(tmp_path)
-    write_artifact(t / "verified-pois-media.yaml", {"media": {"poi-1": {
+    write_artifact(artifact_path(t, "verified-pois-media.yaml"), {"media": {"poi-1": {
         "photo": "https://img.example/goryokaku.jpg",
         "photo_attribution": {"author": "a", "license": "CC-BY-4.0",
                               "source_url": "https://img.example/page"},
@@ -56,11 +54,11 @@ def test_media_present_but_zero_img_fails(tmp_path):
 
 def test_photo_without_attribution_fails_nonretryable(tmp_path):
     t, _ = build_full_trip(tmp_path)
-    write_artifact(t / "verified-pois-media.yaml", {"media": {"poi-1": {
-        "photo": "https://img.example/goryokaku.jpg", "photo_source": "wiki"}}})
-    html = t / "exports" / f"{t.name}-itinerary.html"
+    write_artifact(artifact_path(t, "verified-pois-media.yaml"), {"media": {"poi-1": {
+        "photo": {"data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}, "photo_source": "wiki"}}})
+    html = deliverable_paths(t, trip_brief())["html"]
     html.write_text(html.read_text(encoding="utf-8")
-                    + '<img src="https://img.example/goryokaku.jpg">',
+                    + '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==">',
                     encoding="utf-8")
     r = _run(t)
     assert r.returncode == 1
@@ -70,15 +68,15 @@ def test_photo_without_attribution_fails_nonretryable(tmp_path):
 
 def test_missing_deliverable_exits_two(tmp_path):
     t, _ = build_full_trip(tmp_path)
-    (t / "exports" / f"{t.name}-itinerary.md").unlink()
+    (deliverable_paths(t, trip_brief())["md"]).unlink()
     assert _run(t).returncode == 2
 
 
 def test_malformed_optional_artifact_exits_two_without_report(tmp_path):
     t, _ = build_full_trip(tmp_path)
-    (t / "accommodations.yaml").write_text(
+    (artifact_path(t, "accommodations.yaml")).write_text(
         "stops:\n  bad indent: [\n", encoding="utf-8")
-    (t / "export-gate-report.yaml").unlink(missing_ok=True)
+    (report_path(work_dir_for(t), "export-gate-report.yaml")).unlink(missing_ok=True)
     r = _run(t)
     assert r.returncode == 2, r.stderr + r.stdout
-    assert not (t / "export-gate-report.yaml").exists()
+    assert not (report_path(work_dir_for(t), "export-gate-report.yaml")).exists()

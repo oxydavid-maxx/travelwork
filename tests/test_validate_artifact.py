@@ -1,17 +1,14 @@
 """D1: runtime schema validator CLI — exit 0 pass / 1 schema fail / 2 usage error."""
 import pathlib
-import subprocess
-import sys
 
 import yaml
+from tests.cli_helpers import run_main
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CLI = ROOT / "scripts" / "validate_artifact.py"
 
 
 def _run(*args):
-    return subprocess.run([sys.executable, str(CLI), *[str(a) for a in args]],
-                          capture_output=True, text=True)
+    return run_main("scripts.validate_artifact", args)
 
 
 def _write(tmp_path, name, doc):
@@ -112,5 +109,6 @@ def test_every_pipeline_basename_is_mapped():
                 "verified-pois-media.yaml", "routing.yaml", "accommodations.yaml",
                 "legs.yaml", "calendar.yaml", "seasonal.yaml", "transit.yaml",
                 "cost.yaml", "advisory.yaml", "itinerary.yaml", "gate-report.yaml",
-                "export-gate-report.yaml", "stage-state.yaml"}
+                "export-gate-report.yaml", "stage-state.yaml",
+                "day-maps.yaml"}            # v1.0 P5: the map side-file
     assert set(SCHEMA_BY_BASENAME) == expected

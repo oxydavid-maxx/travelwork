@@ -4,6 +4,7 @@ Written RED-first per the 8-step plugin pre-ship gate. One class per defect.
 Not-yet-existing names / params are imported or exercised INSIDE each test so an
 unimplemented defect reports its own RED rather than failing module collection.
 """
+import datetime
 from urllib.parse import unquote
 
 import pytest
@@ -13,21 +14,58 @@ from scripts.geocode import resolve_place
 from scripts.gate import run_gate
 from scripts.export_gate import run_export_gate, run_html_gate
 from scripts.render.gmaps_links import maps_url
+from tests.mech_fixtures import rederive_kwargs, upgrade_to_v1
+from tests.mech_fixtures import HTML_DELIVERABLE
+
+# Reference "today" for sourced business_status.as_of recency (TW-063). Fixed
+# so these tests don't rot as the wall clock advances past the 90-day window.
+_TODAY = datetime.date(2026, 6, 21)
+
+
+def _sourced_status(status, as_of="2026-06-01"):
+    return {"status": status, "source_url": "https://places.example/x", "as_of": as_of}
 
 
 # --- shared builders (mirror tests/test_gate.py conventions) -------------------
 def _poi(pid, geo=True, status="verified", **extra):
+    """v0.34.0 (TW-070): run_gate now threads `pois` into rederive_pois, so a
+    sourced business_status + geocode_source + resolved_name are needed by
+    default (mirrors tests/test_gate.py's identical migration) -- otherwise
+    every POI built here lands in the 'superseded' bucket the moment it is
+    examined. as_of uses this module's own _sourced_status() default (a fixed
+    literal, matching this file's existing _TODAY convention for write-time
+    verify_poi/classify_candidate calls) rather than a wall-clock read: safe
+    here because rederive_pois anchors its OWN re-check to the record's own
+    business_status.as_of era, never wall-clock (see scripts/rederive.py::
+    rederive_pois's docstring), so this fixture cannot go stale as real time
+    passes. resolved_name mirrors name_local (an exact match) rather than the
+    NO_RESULT sentinel, because this helper -- unlike test_gate.py's -- always
+    gives the POI a real name to match against."""
     d = {"id": pid, "verify_status": status,
          "name_local": extra.pop("name_local", pid),
          "name_display": extra.pop("name_display", pid)}
     if geo:
-        d["geocode"] = {"lat": 1.0, "lng": 2.0}
+        d["geocode"] = {"lat": 1.0, "lng": 2.0, "geocode_source": "nominatim"}
+    d["business_status"] = _sourced_status("OPERATIONAL")
+    d["resolved_name"] = d["name_local"]
+    d["sources"] = [{"url": "https://a.example/poi", "lang": "zh"},
+                    {"url": "https://b.example/poi", "lang": "en"}]
     d.update(extra)
     return d
 
 
-def _meal(pid):
-    return {"time": "12:00", "slot": "meal", "poi_id": pid, "text": "lunch"}
+# v0.33.0 (R4): explicit close + last_order, mirroring tests/test_gate.py's
+# _HOURS. "rest1" names a restaurant -- not a no_fixed_close candidate (see
+# skills/source-verify/SKILL.md's eatery caveat).
+_HOURS = {"close": "22:00", "last_order": "21:30", "last_entry": "21:30",
+         "typical_visit_mins": 60, "as_of": "2026-01-01"}
+
+
+def _meal(pid, closing_status=None):
+    row = {"time": "12:00", "slot": "meal", "poi_id": pid, "text": "lunch"}
+    if closing_status is not None:
+        row["closing_status"] = closing_status
+    return row
 
 
 def _itin(rows, date="2026-07-01", lodging=None, **extra):
@@ -42,17 +80,23 @@ def _itin(rows, date="2026-07-01", lodging=None, **extra):
 # ============================ P1 — operating (Gate 0) =========================
 class TestP1Operating:
     def _cand(self, **extra):
+        # I3: geocode_source: nominatim -- this class is about Gate 0
+        # (operating); a real geocoder-resolved coordinate keeps it off
+        # cluster_fallback (moot for gating purposes since v0.34.0 retired
+        # Gate 2c's separate cluster_fallback proof check, but still the more
+        # representative shape for a Gate-0-focused fixture).
         c = {"id": "x", "name_local": "店", "name_display": "店",
              "sources": [{"url": "https://a.example", "lang": "zh"},
                          {"url": "https://b.example", "lang": "zh"}],
-             "geocode": {"lat": 1.0, "lng": 2.0}}
+             "geocode": {"lat": 1.0, "lng": 2.0, "geocode_source": "nominatim"}}
         c.update(extra)
         return c
 
     def test_closed_permanently_rejected_before_geocode(self):
         # Acceptance: a candidate whose source reports closed -> rejected (Gate 0).
-        _, status, note = verify_poi(self._cand(business_status="CLOSED_PERMANENTLY"),
-                                     geocoded=True, in_claimed_region=True)
+        _, status, note = verify_poi(
+            self._cand(business_status=_sourced_status("CLOSED_PERMANENTLY")),
+            geocoded=True, in_claimed_region=True, today=_TODAY)
         assert status == "rejected"
         assert "clos" in note.lower() or "defunct" in note.lower()
 
@@ -64,8 +108,12 @@ class TestP1Operating:
         assert "operating" in note.lower() or "business_status" in note.lower()
 
     def test_operational_signal_allows_verified(self):
-        _, status, _ = verify_poi(self._cand(business_status="OPERATIONAL"),
-                                  geocoded=True, in_claimed_region=True)
+        # TW-062: Gate 2b now refuses to run silently, so the resolved name the
+        # geocoder returned must be passed — this fixture's point is Gate 0, and
+        # the geocoder resolving the same name ("店") keeps that isolated.
+        _, status, _ = verify_poi(
+            self._cand(business_status=_sourced_status("OPERATIONAL")),
+            geocoded=True, in_claimed_region=True, resolved_name="店", today=_TODAY)
         assert status == "verified"
 
     def test_classify_candidate_operating_false_still_rejected(self):
@@ -95,13 +143,16 @@ class TestP2NameMatch:
         assert "name" in note.lower() and "mismatch" in note.lower()
 
     def test_verify_poi_resolved_name_mismatch_conflicting(self):
+        # I3: geocode_source: nominatim -- this fixture's point is Gate 2b's
+        # name-mismatch check, not the (v0.34.0-retired) cluster_fallback
+        # proof check.
         c = {"id": "x", "name_local": "星月大地", "name_display": "星月大地",
-             "business_status": "OPERATIONAL",
+             "business_status": _sourced_status("OPERATIONAL"),
              "sources": [{"url": "https://a.example", "lang": "zh"},
                          {"url": "https://b.example", "lang": "zh"}],
-             "geocode": {"lat": 1.0, "lng": 2.0}}
+             "geocode": {"lat": 1.0, "lng": 2.0, "geocode_source": "nominatim"}}
         _, status, note = verify_poi(c, geocoded=True, in_claimed_region=True,
-                                     resolved_name="星月驛站, 后里區")
+                                     resolved_name="星月驛站, 后里區", today=_TODAY)
         assert status == "conflicting"
         assert "mismatch" in note.lower()
 
@@ -124,21 +175,22 @@ class TestP3GeocodeResilience:
         bare = {n for n, _ in self.LANDMARKS}
         romans = {r for _, r in self.LANDMARKS}
 
-        def fake_structured(name, city=None, country=None, timeout=10):
-            return None  # street-slot misses for non-address POIs
+        def fake_structured(name, city=None, country=None, timeout=10, limit=5, details=False):
+            return []  # street-slot misses for non-address POIs
 
-        def fake_geocode(query, timeout=10):
+        def fake_geocode(query, timeout=10, countrycodes=None, feature_type=None, limit=5, details=False):
             if query in bare or query in romans:
-                return g.GeocodeResult(23.8, 120.9, f"{query} result")
-            return None  # the combined "<name> <district> <country>" query misses
+                return [g.GeocodeResult(23.8, 120.9, f"{query}, 魚池鄉")]
+            return []  # the combined "<name> <district> <country>" query misses
 
-        monkeypatch.setattr(g, "geocode_structured", fake_structured)
-        monkeypatch.setattr(g, "geocode", fake_geocode)
+        monkeypatch.setattr(g, "geocode_structured_many", fake_structured)
+        monkeypatch.setattr(g, "geocode_many", fake_geocode)
+        monkeypatch.setattr(g, "geocode_country", lambda country, timeout=10: "tw")   # v1.2.1
 
         resolved = sum(
             1 for name, roman in self.LANDMARKS
             if resolve_place(name, district="日月潭", country="Taiwan",
-                             name_roman=roman)[0] is not None
+                             name_roman=roman, region=(23.80, 120.90, 5.0))[0] is not None
         )
         assert resolved / len(self.LANDMARKS) >= 0.9
 
@@ -146,27 +198,38 @@ class TestP3GeocodeResilience:
         """Even without name_roman, a plain free-text core-name attempt must be made."""
         import scripts.geocode as g
 
-        def fake_structured(name, city=None, country=None, timeout=10):
-            return None
+        def fake_structured(name, city=None, country=None, timeout=10, limit=5, details=False):
+            return []
 
-        def fake_geocode(query, timeout=10):
+        def fake_geocode(query, timeout=10, countrycodes=None, feature_type=None, limit=5, details=False):
             if query == "九族文化村":  # only the bare core name resolves
-                return g.GeocodeResult(23.8, 120.9, "九族文化村 result")
-            return None
+                return [g.GeocodeResult(23.8, 120.9, "九族文化村, 魚池鄉")]
+            return []
 
-        monkeypatch.setattr(g, "geocode_structured", fake_structured)
-        monkeypatch.setattr(g, "geocode", fake_geocode)
-        res, _ = resolve_place("九族文化村", district="日月潭", country="Taiwan")
+        monkeypatch.setattr(g, "geocode_structured_many", fake_structured)
+        monkeypatch.setattr(g, "geocode_many", fake_geocode)
+        monkeypatch.setattr(g, "geocode_country", lambda country, timeout=10: "tw")   # v1.2.1
+        res, _ = resolve_place("九族文化村", district="日月潭", country="Taiwan",
+                               region=(23.80, 120.90, 5.0))   # v2.1.0: a bare-name hit needs the district
         assert res is not None
 
 
 # ============================ P4 — lodging in gate/render pool ================
 class TestP4LodgingPool:
     def _acc(self):
+        # geocode_source + resolved_name (I2, v0.33.0) + business_status
+        # (Task 6, v0.34.0): so rederive_lodging re-derives this candidate to
+        # the recorded 'verified' instead of flagging it as a
+        # verdicts_rederivable / verdicts_rule_current gap. as_of uses this
+        # file's own _TODAY convention (rederive_lodging anchors Gate 0 to the
+        # record's own era, not wall-clock, so any literal date is safe here).
         return {"stops": [{"district": "日月潭", "nights": 2, "chosen": "hotel-a",
             "candidates": [{
-                "id": "hotel-a", "name_local": "力麗溫德姆", "name_display": "力麗溫德姆",
-                "verify_status": "verified", "geocode": {"lat": 1.0, "lng": 2.0},
+                "id": "hotel-a", "name_local": "示麗溫德姆", "name_display": "示麗溫德姆",
+                "verify_status": "verified",
+                "geocode": {"lat": 1.0, "lng": 2.0, "geocode_source": "nominatim"},
+                "resolved_name": "示麗溫德姆",
+                "business_status": _sourced_status("OPERATIONAL"),
                 "facilities": [],
                 "sources": [{"url": "https://x.example", "lang": "zh"},
                             {"url": "https://y.example", "lang": "zh"}]}]}]}
@@ -179,26 +242,31 @@ class TestP4LodgingPool:
     def test_gate_passes_with_lodging_only_in_accommodations(self):
         # Acceptance: gate passes when day.lodging is an accommodations chosen id,
         # with only verified-pois + accommodations as inputs (no manual merge).
-        r = run_gate([_poi("rest1")], _itin([_meal("rest1")], lodging="hotel-a"),
-                     accommodations=self._acc(), advisory={"items": []})
+        acc = self._acc()
+        pois, itin = upgrade_to_v1([_poi("rest1", hours=_HOURS)],
+                                   _itin([_meal("rest1", closing_status="ok")], lodging="hotel-a"),
+                                   acc)
+        r = run_gate(pois, itin, advisory={"items": []},
+                     **rederive_kwargs(accommodations=acc))
         assert r["status"] == "pass", r["failures"]
         assert not any("unknown POI 'hotel-a'" in f for f in r["failures"])
 
     def test_html_renders_chosen_lodging_from_accommodations(self):
         from scripts.render.html_page import render_html_page
-        from scripts.gate import chosen_lodging_pois
-        poi_map = {p["id"]: p for p in [_poi("rest1")]}
-        poi_map.update({p["id"]: p for p in chosen_lodging_pois(self._acc())})
+        from scripts.gate import poi_pool
+        poi_map = poi_pool([_poi("rest1")], self._acc())       # TW-091: tripwork-export-artifact's fold
         html = render_html_page(_itin([_meal("rest1")], lodging="hotel-a"), poi_map)
-        assert "力麗溫德姆" in html  # lodging rendered, not the "—" blank
+        assert "示麗溫德姆" in html  # lodging rendered, not the "—" blank
 
 
 # ============================ P5 — must_do thematic coverage ==================
 class TestP5MustDo:
     def test_thematic_must_do_covered_passes(self):
-        r = run_gate([_poi("ferry")],
-                     _itin([_meal("ferry")], must_do_coverage={"日月潭遊湖賞景": ["ferry"]}),
-                     must_do=["日月潭遊湖賞景"], advisory={"items": []})
+        pois, itin = upgrade_to_v1([_poi("ferry", hours=_HOURS)],
+                                   _itin([_meal("ferry", closing_status="ok")],
+                                         must_do_coverage={"日月潭遊湖賞景": ["ferry"]}))
+        r = run_gate(pois, itin, must_do=["日月潭遊湖賞景"], advisory={"items": []},
+                     **rederive_kwargs())
         assert r["status"] == "pass", r["failures"]
         assert {"name": "must_do_covered", "passed": True} in r["checks"]
 
@@ -268,7 +336,7 @@ class TestP7Distributable:
         assert r["distributable"] is False
 
     def test_html_google_photo_terminal_nondistributable(self):
-        html = ('<div class="day-card"></div>'
+        html = (HTML_DELIVERABLE +
                 '<img src="data:image/png;base64,iVB">')
         r = run_html_gate(html, [self._photo("google")], min_days=1)
         assert r["status"] == "pass", r["failures"]
@@ -278,21 +346,21 @@ class TestP7Distributable:
 # ============================ P8 — media landed cross-check ===================
 class TestP8MediaLanded:
     def test_media_present_but_zero_photos_fails(self):
-        html = '<div class="day-card"></div>'  # 0 <img>
+        html = HTML_DELIVERABLE  # 0 <img>
         r = run_html_gate(html, pois=[], min_days=1, media_count=2)
         assert r["status"] == "fail"
         assert any("media side-file" in f.lower() and "0 photo" in f.lower()
                    for f in r["failures"])
 
     def test_media_present_with_photos_passes(self):
-        html = ('<div class="day-card"></div>'
+        html = (HTML_DELIVERABLE +
                 '<img src="data:image/png;base64,iVB">')
         r = run_html_gate(html, pois=[], min_days=1, media_count=2)
         assert r["status"] == "pass", r["failures"]
 
     def test_no_media_count_no_check(self):
         # Back-compat: callers that don't declare a side-file are not P8-checked.
-        r = run_html_gate('<div class="day-card"></div>', pois=[], min_days=1)
+        r = run_html_gate(HTML_DELIVERABLE, pois=[], min_days=1)
         assert r["status"] == "pass", r["failures"]
 
 

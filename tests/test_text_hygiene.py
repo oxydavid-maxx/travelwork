@@ -85,3 +85,14 @@ class TestKanaNameGuard:
         # non-empty Han name_display is the rendered name; name_local kana is not shown.
         assert kana_name_without_gloss(
             {"verify_status": "verified", "name_display": "五稜郭", "name_local": "ごりょうかく"}) is False
+
+
+def test_the_katakana_middle_dot_alone_is_punctuation_not_japanese():
+    """v1.0 P4: the checklist origin `D2・10/13` (spec §4.7) and the day label use
+    U+30FB as a Chinese 間隔號; a reader needs no gloss for it. A real kana run on
+    the same kind of line is still caught, dot or not."""
+    from scripts.text_hygiene import kana_gloss_failures
+    assert kana_gloss_failures("D2・10/13 確認航班") == []
+    assert kana_gloss_failures("示意飯店・函館灣") == []
+    assert kana_gloss_failures("ザ・レイクビュー 入住") != []
+    assert kana_gloss_failures("ラーメン 午餐") != []

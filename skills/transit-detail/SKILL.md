@@ -6,15 +6,16 @@ description: Use when verified-pois are ready and the destination's intra-city t
 # transit-detail — intra-city transit comfort
 
 Research the destination's intra-city transit details that affect a group travelling with
-elders / luggage. Produces `trips/<slug>/transit.yaml` (schema: `schemas/transit.schema.json`).
+elders / luggage. Produces `trips/<slug>/data/transit.yaml` (schema: `schemas/transit.schema.json`).
 Everything is **advisory** — this stage never stops the pipeline.
 
 ## Research (no API key)
 
-Use the consumer harness `WebSearch`; prefer local-language / operator sources.
+Research using the **source ladder** in `tripwork:using-tripwork` (WebSearch, else WebFetch against an official page, else a search HTML endpoint for discovery only); prefer local-language / operator sources.
 
 - **peak_windows** — the commuter rush-hour windows (e.g. ~07:30–09:30 and ~17:30–19:30).
-  Record `label`, `start`, `end`, optional `note`, and ≥ 1 `sources` (operator/official).
+  Record `label`, `start`, `end`, optional `note`, and ≥ 1 `sources` (operator/official);
+  when the source scopes the window, also `days` (`mon`..`sun`) and `areas` (area names).
   Synthesis flags moves that fall in these via `scripts/transit.py::in_peak`.
 - **ic_card** — the destination's stored-value card (Suica / ICOCA / PASMO / T-money /
   Octopus / EZ-Link / …): `name`, `where_to_buy`, `top_up`, `covers`, optional `note`, and
@@ -26,19 +27,19 @@ Use the consumer harness `WebSearch`; prefer local-language / operator sources.
 
 ## Output
 
-Write `trips/<slug>/transit.yaml`, then validate it:
-`python scripts/validate_artifact.py trips/<slug>/transit.yaml`
+Write `trips/<slug>/data/transit.yaml`, then validate it:
+`python <plugin>/scripts/tripwork.py validate <slug> transit`
 (exit 0 required before returning). A walk-everywhere / cash-only trip
-writes empty `peak_windows` / `walks` and no `ic_card`. Return to `tripwork:orchestrator`.
+writes empty `peak_windows` / `walks` and no `ic_card`. Return to `tripwork:tripwork-orchestrator`.
 
 ## Stage Contract
 
 | Field | Value |
 |---|---|
-| Input | `trips/<slug>/trip-brief.yaml` (destination, members) + `trips/<slug>/verified-pois.yaml`. |
-| Output | `trips/<slug>/transit.yaml` (peak_windows + ic_card + per-POI walks). |
+| Input | `trips/<slug>/data/trip-brief.yaml` (destination, members) + `trips/<slug>/data/verified-pois.yaml`. |
+| Output | `trips/<slug>/data/transit.yaml` (peak_windows + ic_card + per-POI walks). |
 | Stop condition | None — advisory only. |
-| Next stage | `tripwork:orchestrator`. |
+| Next stage | `tripwork:tripwork-orchestrator`. |
 
 ## Common Mistakes
 
