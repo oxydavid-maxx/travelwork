@@ -5,3 +5,5 @@ work/
 *.egg-info/
 .venv/
 docs/superpowers/
+/runs/
+/.superpowers/
